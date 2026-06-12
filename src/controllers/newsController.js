@@ -578,22 +578,158 @@ const getNewsAnalytics = async (req, res) => {
 
 const getTopList = (items, limit) => items.slice(0, limit).map((item, index) => ({ rank: index + 1, ...item }));
 
+const fillLastDaysTrend = (rawRows, days = 14) => {
+  const map = new Map();
+  rawRows.forEach((row) => {
+    const day = row?._id?.day;
+    if (!day) return;
+    if (!map.has(day)) map.set(day, { date: day, views: 0, saves: 0, shares: 0, total: 0 });
+    const item = map.get(day);
+    const action = row?._id?.action;
+    if (action === "view") item.views += row.count || 0;
+    if (action === "save") item.saves += row.count || 0;
+    if (action === "share") item.shares += row.count || 0;
+    item.total += row.count || 0;
+  });
+
+  return Array.from({ length: days }).map((_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (days - 1 - index));
+    const key = date.toISOString().slice(0, 10);
+    return map.get(key) || { date: key, views: 0, saves: 0, shares: 0, total: 0 };
+  });
+};
+
 const getAnalyticsDashboard = async (req, res) => {
   try {
     const limit = Math.max(Number(req.query.limit || 10), 1);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const last14Days = new Date(Date.now() - 13 * 24 * 60 * 60 * 1000);
+    last14Days.setHours(0, 0, 0, 0);
 
     const totalsAgg = await News.aggregate([
       {
         $group: {
           _id: null,
           totalNews: { $sum: 1 },
+          activeNews: { $sum: { $cond: [{ $ne: ["$isActive", false] }, 1, 0] } },
+          inactiveNews: { $sum: { $cond: [{ $eq: ["$isActive", false] }, 1, 0] } },
           totalViews: { $sum: "$viewCount" },
           totalSaves: { $sum: "$saveCount" },
           totalShares: { $sum: "$shareCount" },
           pinnedNews: { $sum: { $cond: ["$isPinned", 1, 0] } },
           breakingNews: { $sum: { $cond: ["$isBreaking", 1, 0] } },
+          newsWithMedia: { $sum: { $cond: [{ $gt: [{ $size: { $ifNull: ["$media", []] } }, 0] }, 1, 0] } },
+          newsWithoutCity: { $sum: { $cond: [{ $eq: [{ $size: { $ifNull: ["$cities", []] } }, 0] }, 1, 0] } },
         },
       },
+    ]);
+
+    const todayNewsAgg = await News.aggregate([
+      { $match: { createdAt: { $gte: todayStart, $lt: tomorrowStart } } },
+      {
+        $group: {
+          _id: null,
+          todayNews: { $sum: 1 },
+          todayPublishedViews: { $sum: "$viewCount" },
+          todayPublishedSaves: { $sum: "$saveCount" },
+          todayPublishedShares: { $sum: "$shareCount" },
+        },
+      },
+    ]);
+
+    const todayInteractionAgg = await NewsInteraction.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: todayStart, $lt: tomorrowStart },
+          action: { $in: ["view", "save", "share"] },
+        },
+      },
+      {
+        $group: {
+          _id: "$action",
+          count: { $sum: 1 },
+          uniqueUsersSet: { $addToSet: "$guestId" },
+        },
+      },
+    ]);
+
+    const todayInteractions = todayInteractionAgg.reduce(
+      (acc, row) => {
+        if (row._id === "view") acc.todayViews = row.count;
+        if (row._id === "save") acc.todaySaves = row.count;
+        if (row._id === "share") acc.todayShares = row.count;
+        row.uniqueUsersSet?.forEach((guestId) => acc.uniqueUserSet.add(guestId));
+        return acc;
+      },
+      { todayViews: 0, todaySaves: 0, todayShares: 0, uniqueUserSet: new Set() }
+    );
+
+    const todayGuestUsers = await GuestUser.countDocuments({ createdAt: { $gte: todayStart, $lt: tomorrowStart } });
+
+    const todayTopCategories = await News.aggregate([
+      { $match: { createdAt: { $gte: todayStart, $lt: tomorrowStart } } },
+      { $lookup: { from: "categories", localField: "category", foreignField: "_id", as: "category" } },
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: "$category._id",
+          name: { $first: { $ifNull: ["$category.name", "Uncategorized"] } },
+          backgroundColor: { $first: "$category.backgroundColor" },
+          textColor: { $first: "$category.textColor" },
+          newsCount: { $sum: 1 },
+          views: { $sum: "$viewCount" },
+          saves: { $sum: "$saveCount" },
+          shares: { $sum: "$shareCount" },
+        },
+      },
+      { $sort: { newsCount: -1, views: -1, shares: -1, name: 1 } },
+      { $limit: limit },
+    ]);
+
+    const todayTopNewsCities = await News.aggregate([
+      { $match: { createdAt: { $gte: todayStart, $lt: tomorrowStart } } },
+      {
+        $facet: {
+          cityNews: [
+            { $unwind: { path: "$cities", preserveNullAndEmptyArrays: false } },
+            { $lookup: { from: "cities", localField: "cities", foreignField: "_id", as: "city" } },
+            { $unwind: "$city" },
+            {
+              $group: {
+                _id: "$city._id",
+                name: { $first: "$city.name" },
+                newsCount: { $sum: 1 },
+                views: { $sum: "$viewCount" },
+                saves: { $sum: "$saveCount" },
+                shares: { $sum: "$shareCount" },
+              },
+            },
+          ],
+          allCityNews: [
+            { $match: { $expr: { $eq: [{ $size: { $ifNull: ["$cities", []] } }, 0] } } },
+            {
+              $group: {
+                _id: "all-cities",
+                name: { $first: "All Cities" },
+                newsCount: { $sum: 1 },
+                views: { $sum: "$viewCount" },
+                saves: { $sum: "$saveCount" },
+                shares: { $sum: "$shareCount" },
+              },
+            },
+          ],
+        },
+      },
+      { $project: { rows: { $concatArrays: ["$cityNews", "$allCityNews"] } } },
+      { $unwind: "$rows" },
+      { $replaceRoot: { newRoot: "$rows" } },
+      { $sort: { newsCount: -1, views: -1, shares: -1, name: 1 } },
+      { $limit: limit },
     ]);
 
     const guestTotalsAgg = await GuestUser.aggregate([
@@ -605,6 +741,8 @@ const getAnalyticsDashboard = async (req, res) => {
           androidUsers: { $sum: { $cond: [{ $eq: ["$platform", "android"] }, 1, 0] } },
           iosUsers: { $sum: { $cond: [{ $eq: ["$platform", "ios"] }, 1, 0] } },
           webUsers: { $sum: { $cond: [{ $eq: ["$platform", "web"] }, 1, 0] } },
+          unknownUsers: { $sum: { $cond: [{ $eq: ["$platform", "unknown"] }, 1, 0] } },
+          usersWithCityPreference: { $sum: { $cond: [{ $gt: [{ $size: { $ifNull: ["$cityPreferences", []] } }, 0] }, 1, 0] } },
         },
       },
     ]);
@@ -713,15 +851,15 @@ const getAnalyticsDashboard = async (req, res) => {
           uniqueGuests: { $addToSet: "$guestId" },
         },
       },
-      { $project: { name: 1, views: 1, uniqueUsers: { $size: "$uniqueGuests" } } },
+      { $project: { name: 1, views: 1, uniqueUsers: { $size: { $ifNull: ["$uniqueGuests", []] } } } },
       { $sort: { views: -1, uniqueUsers: -1 } },
       { $limit: limit },
     ]);
 
-    const actionTrend = await NewsInteraction.aggregate([
+    const actionTrendRaw = await NewsInteraction.aggregate([
       {
         $match: {
-          createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+          createdAt: { $gte: last14Days },
           action: { $in: ["view", "save", "share"] },
         },
       },
@@ -737,22 +875,83 @@ const getAnalyticsDashboard = async (req, res) => {
       { $sort: { "_id.day": 1 } },
     ]);
 
+    const newsPublishTrend = await News.aggregate([
+      { $match: { createdAt: { $gte: last30Days } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          news: { $sum: 1 },
+          breaking: { $sum: { $cond: ["$isBreaking", 1, 0] } },
+        },
+      },
+      { $sort: { _id: 1 } },
+      { $project: { _id: 0, date: "$_id", news: 1, breaking: 1 } },
+    ]);
+
+    const platformBreakdown = await GuestUser.aggregate([
+      { $group: { _id: { $ifNull: ["$platform", "unknown"] }, users: { $sum: 1 } } },
+      { $project: { _id: 0, platform: "$_id", users: 1 } },
+      { $sort: { users: -1 } },
+    ]);
+
+    const mediaTypeBreakdown = await News.aggregate([
+      { $unwind: { path: "$media", preserveNullAndEmptyArrays: false } },
+      { $group: { _id: "$media.type", count: { $sum: 1 } } },
+      { $project: { _id: 0, type: "$_id", count: 1 } },
+      { $sort: { count: -1 } },
+    ]);
+
+    const reporterPerformance = await News.aggregate([
+      {
+        $group: {
+          _id: "$reporter.name",
+          name: { $first: "$reporter.name" },
+          newsCount: { $sum: 1 },
+          views: { $sum: "$viewCount" },
+          saves: { $sum: "$saveCount" },
+          shares: { $sum: "$shareCount" },
+        },
+      },
+      { $sort: { views: -1, shares: -1, newsCount: -1 } },
+      { $limit: limit },
+    ]);
+
     return res.json({
       success: true,
       data: {
         totals: {
-          ...(totalsAgg[0] || { totalNews: 0, totalViews: 0, totalSaves: 0, totalShares: 0, pinnedNews: 0, breakingNews: 0 }),
-          ...(guestTotalsAgg[0] || { totalGuestUsers: 0, notificationsEnabledUsers: 0, androidUsers: 0, iosUsers: 0, webUsers: 0 }),
+          ...(totalsAgg[0] || { totalNews: 0, activeNews: 0, inactiveNews: 0, totalViews: 0, totalSaves: 0, totalShares: 0, pinnedNews: 0, breakingNews: 0, newsWithMedia: 0, newsWithoutCity: 0 }),
+          ...(guestTotalsAgg[0] || { totalGuestUsers: 0, notificationsEnabledUsers: 0, androidUsers: 0, iosUsers: 0, webUsers: 0, unknownUsers: 0, usersWithCityPreference: 0 }),
+          ...(todayNewsAgg[0] || { todayNews: 0, todayPublishedViews: 0, todayPublishedSaves: 0, todayPublishedShares: 0 }),
+          todayViews: todayInteractions.todayViews,
+          todaySaves: todayInteractions.todaySaves,
+          todayShares: todayInteractions.todayShares,
+          todayActiveUsers: todayInteractions.uniqueUserSet.size,
+          todayGuestUsers,
         },
         topNewsByViews: getTopList(topNewsByViews.map((item) => item.toObject()), limit),
         topNewsBySaves: getTopList(topNewsBySaves.map((item) => item.toObject()), limit),
         topNewsByShares: getTopList(topNewsByShares.map((item) => item.toObject()), limit),
         topCategories: getTopList(topCategories, limit),
+        todayTopCategories: getTopList(todayTopCategories, limit),
         topHashtags: getTopList(topHashtags, limit),
         topNewsCities: getTopList(topNewsCities, limit),
+        todayTopNewsCities: getTopList(todayTopNewsCities, limit),
         topUserCities: getTopList(topUserCities, limit),
         viewsByGuestCity: getTopList(viewsByGuestCity, limit),
-        actionTrend,
+        reporterPerformance: getTopList(reporterPerformance, limit),
+        charts: {
+          actionTrend: fillLastDaysTrend(actionTrendRaw, 14),
+          newsPublishTrend,
+          platformBreakdown,
+          mediaTypeBreakdown,
+          categoryPerformance: topCategories,
+          todayCategoryPerformance: todayTopCategories,
+          cityPerformance: topNewsCities,
+          todayCityPerformance: todayTopNewsCities,
+          userCityPerformance: topUserCities,
+        },
+        actionTrend: actionTrendRaw,
       },
     });
   } catch (error) {
