@@ -61,7 +61,7 @@ const createAdvertisement = async (req, res) => {
       bannerImage,
       redirectUrl: normalizeUrl(redirectUrl),
       cities: parseArrayField(cities),
-      positionAfterNews: Number(positionAfterNews) || 4,
+      positionAfterNews: (positionAfterNews !== undefined && positionAfterNews !== "") ? Number(positionAfterNews) : 4,
       isEnabled: isEnabled === undefined ? true : parseBoolean(isEnabled),
     });
 
@@ -146,7 +146,7 @@ const updateAdvertisement = async (req, res) => {
     if (redirectUrl !== undefined) advertisement.redirectUrl = normalizeUrl(redirectUrl);
     if (cities !== undefined) advertisement.cities = parseArrayField(cities);
     if (positionAfterNews !== undefined) {
-      advertisement.positionAfterNews = Number(positionAfterNews) || 4;
+      advertisement.positionAfterNews = positionAfterNews !== "" ? Number(positionAfterNews) : 4;
     }
     if (isEnabled !== undefined) advertisement.isEnabled = parseBoolean(isEnabled);
 
@@ -202,6 +202,40 @@ const toggleAdvertisement = async (req, res) => {
   }
 };
 
+const trackAdInteraction = async (req, res) => {
+  try {
+    const { action } = req.body; // 'view' | 'click'
+    if (!["view", "click"].includes(action)) {
+      return res.status(400).json({ success: false, message: "Invalid action" });
+    }
+
+    const updateField = action === "view" ? "viewCount" : "clickCount";
+    const advertisement = await Advertisement.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { [updateField]: 1 } },
+      { new: true }
+    );
+
+    if (!advertisement) {
+      return res.status(404).json({ success: false, message: "Advertisement not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: `Advertisement ${action} tracked successfully`,
+      data: {
+        advertisementId: advertisement._id,
+        action,
+        viewCount: advertisement.viewCount || 0,
+        clickCount: advertisement.clickCount || 0,
+      },
+    });
+  } catch (error) {
+    console.error("Track advertisement interaction error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 module.exports = {
   createAdvertisement,
   getAdvertisements,
@@ -209,4 +243,5 @@ module.exports = {
   updateAdvertisement,
   deleteAdvertisement,
   toggleAdvertisement,
+  trackAdInteraction,
 };

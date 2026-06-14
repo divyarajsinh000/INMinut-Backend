@@ -20,7 +20,6 @@ const newsSchema = new mongoose.Schema(
   {
     title: {
       type: String,
-      required: true,
       trim: true,
     },
     titleColor: {
@@ -36,7 +35,6 @@ const newsSchema = new mongoose.Schema(
     },
     description: {
       type: String,
-      required: true,
       trim: true,
     },
     descriptionFontSize: {
@@ -47,7 +45,6 @@ const newsSchema = new mongoose.Schema(
     },
     content: {
       type: String,
-      required: true,
       trim: true,
     },
     media: {
@@ -57,7 +54,6 @@ const newsSchema = new mongoose.Schema(
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: true,
     },
     cities: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "City" }],
@@ -67,11 +63,9 @@ const newsSchema = new mongoose.Schema(
     reporter: {
       name: {
         type: String,
-        required: true,
       },
       avatar: {
         type: String,
-        required: true,
       },
     },
     hashtags: {
@@ -87,6 +81,20 @@ const newsSchema = new mongoose.Schema(
       default: "Breaking News",
       trim: true,
       maxlength: 80,
+    },
+    breakingBgColor: {
+      type: String,
+      default: "#EF4444",
+      trim: true,
+    },
+    breakingTextColor: {
+      type: String,
+      default: "#FFFFFF",
+      trim: true,
+    },
+    isBreakingBlink: {
+      type: Boolean,
+      default: false,
     },
     isActive: {
       type: Boolean,

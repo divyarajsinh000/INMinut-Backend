@@ -10,6 +10,7 @@ const newsRoutes = require("./routes/newsRoutes");
 const guestUserRoutes = require("./routes/guestUserRoutes");
 const locationRoutes = require("./routes/locationRoutes");
 const advertisementRoutes = require("./routes/advertisementRoutes");
+const embedRoutes = require("./routes/embedRoutes");
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use("/api/news", newsRoutes);
 app.use("/api/guest-users", guestUserRoutes);
 app.use("/api/locations", locationRoutes);
 app.use("/api/advertisements", advertisementRoutes);
+app.use("/api/embeds", embedRoutes);
 
 const PORT = process.env.PORT || 5000;
 

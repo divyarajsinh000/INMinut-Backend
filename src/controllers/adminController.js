@@ -249,6 +249,41 @@ const deleteAdmin = async (req, res) => {
   }
 };
 
+const updateProfile = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      updateData.password = await bcrypt.hash(password, salt);
+    }
+
+    if (req.file) {
+      updateData.profileImage = `/uploads/images/${req.file.filename}`;
+    }
+
+    const admin = await Admin.findByIdAndUpdate(
+      req.admin._id,
+      updateData,
+      { new: true }
+    ).select("-password");
+
+    return res.json({
+      success: true,
+      message: "Profile updated successfully",
+      data: admin,
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 module.exports = {
   registerAdmin,
   loginAdmin,
@@ -257,4 +292,5 @@ module.exports = {
   getAdminById,
   updateAdmin,
   deleteAdmin,
+  updateProfile,
 };

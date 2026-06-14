@@ -114,19 +114,14 @@ const createNews = async (req, res) => {
       hashtags,
       isBreaking,
       breakingText,
+      breakingBgColor,
+      breakingTextColor,
+      isBreakingBlink,
       isActive,
       isPinned,
       publishedDate,
       cities,
     } = req.body;
-
-    if (!title || !description || !content || !category || !reporter) {
-      return res.status(400).json({
-        success: false,
-        message: "All required fields are missing",
-      });
-    }
-
 
     // Parse reporter from JSON string if needed
     let parsedReporter = reporter;
@@ -171,10 +166,16 @@ const createNews = async (req, res) => {
       media,
       category,
       cities: parseArrayField(cities),
-      reporter: parsedReporter,
+      reporter: {
+        name: req.admin?.name || "",
+        avatar: req.admin?.profileImage || "",
+      },
       hashtags: hashtags ? JSON.parse(hashtags) : [],
       isBreaking: parseBoolean(isBreaking),
       breakingText: breakingText || "Breaking News",
+      breakingBgColor: breakingBgColor || "#EF4444",
+      breakingTextColor: breakingTextColor || "#FFFFFF",
+      isBreakingBlink: parseBoolean(isBreakingBlink),
       isActive: isActive === undefined ? true : parseBoolean(isActive),
       isPinned: parseBoolean(isPinned),
       createdBy: req.admin?._id,
@@ -235,12 +236,23 @@ const getNews = async (req, res) => {
     const news = await News.find(query)
       .populate("category")
       .populate("cities")
-      .populate("createdBy", "name email role")
+      .populate("createdBy", "name email role profileImage")
       .sort(sortOptions);
+
+    const formattedNews = news.map(item => {
+      const obj = item.toObject();
+      if (obj.createdBy) {
+        obj.reporter = {
+          name: obj.createdBy.name || obj.reporter?.name || "",
+          avatar: obj.createdBy.profileImage || obj.reporter?.avatar || "",
+        };
+      }
+      return obj;
+    });
 
     return res.json({
       success: true,
-      data: news,
+      data: formattedNews,
     });
   } catch (error) {
     console.error("Get news error:", error);
@@ -255,7 +267,10 @@ const getNewsById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const news = await News.findById(id).populate("category").populate("cities").populate("createdBy", "name email role");
+    const news = await News.findById(id)
+      .populate("category")
+      .populate("cities")
+      .populate("createdBy", "name email role profileImage");
 
     if (!news || (!req.admin && news.isActive === false)) {
       return res.status(404).json({
@@ -264,9 +279,17 @@ const getNewsById = async (req, res) => {
       });
     }
 
+    const obj = news.toObject();
+    if (obj.createdBy) {
+      obj.reporter = {
+        name: obj.createdBy.name || obj.reporter?.name || "",
+        avatar: obj.createdBy.profileImage || obj.reporter?.avatar || "",
+      };
+    }
+
     return res.json({
       success: true,
-      data: news,
+      data: obj,
     });
   } catch (error) {
     console.error("Get news by id error:", error);
@@ -292,6 +315,9 @@ const updateNews = async (req, res) => {
       hashtags,
       isBreaking,
       breakingText,
+      breakingBgColor,
+      breakingTextColor,
+      isBreakingBlink,
       isActive,
       isPinned,
       publishedDate,
@@ -385,21 +411,31 @@ const updateNews = async (req, res) => {
         media: updatedMedia,
         category,
         cities: parseArrayField(cities, existingNews.cities),
-        reporter: parsedReporter,
         hashtags: hashtags ? JSON.parse(hashtags) : existingNews.hashtags,
         isBreaking: parseBoolean(isBreaking),
         breakingText: breakingText || existingNews.breakingText || "Breaking News",
+        breakingBgColor: breakingBgColor || existingNews.breakingBgColor || "#EF4444",
+        breakingTextColor: breakingTextColor || existingNews.breakingTextColor || "#FFFFFF",
+        isBreakingBlink: isBreakingBlink === undefined ? existingNews.isBreakingBlink : parseBoolean(isBreakingBlink),
         isActive: isActive === undefined ? existingNews.isActive : parseBoolean(isActive),
         isPinned: isPinned === undefined ? existingNews.isPinned : parseBoolean(isPinned),
         publishedDate,
       },
       { new: true }
-    ).populate("category").populate("cities").populate("createdBy", "name email role");
+    ).populate("category").populate("cities").populate("createdBy", "name email role profileImage");
+
+    const obj = news.toObject();
+    if (obj.createdBy) {
+      obj.reporter = {
+        name: obj.createdBy.name || obj.reporter?.name || "",
+        avatar: obj.createdBy.profileImage || obj.reporter?.avatar || "",
+      };
+    }
 
     return res.json({
       success: true,
       message: "News updated successfully",
-      data: news,
+      data: obj,
     });
   } catch (error) {
     console.error("Update news error:", error);

@@ -116,9 +116,11 @@ const removeInvalidExpoTokens = async (tokens = [], tickets = []) => {
   }
 };
 
+const stripHtml = (html) => (html || "").replace(/<[^>]*>?/gm, "").replace(/&nbsp;/g, " ").trim();
+
 const buildNotificationPayload = (news, newsCityIds) => ({
   title: news.isBreaking ? `Breaking: ${news.title}` : news.title,
-  body: news.description || "New news update is available.",
+  body: stripHtml(news.description) || "New news update is available.",
   data: {
     type: "news",
     newsId: String(news._id),

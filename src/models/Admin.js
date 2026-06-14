@@ -25,6 +25,10 @@ const adminSchema = new mongoose.Schema(
       enum: ["super-admin", "editor", "reporter"],
       default: "editor",
     },
+    profileImage: {
+      type: String,
+      trim: true,
+    },
   },
   {
     timestamps: true,

@@ -30,7 +30,15 @@ const advertisementSchema = new mongoose.Schema(
     positionAfterNews: {
       type: Number,
       default: 4,
-      min: 1,
+      min: 0,
+    },
+    viewCount: {
+      type: Number,
+      default: 0,
+    },
+    clickCount: {
+      type: Number,
+      default: 0,
     },
     isEnabled: {
       type: Boolean,
