@@ -10,6 +10,7 @@ const {
   trackNewsInteraction,
   reorderNews,
   togglePinNews,
+  toggleActiveNews,
 } = require("../controllers/newsController");
 const { auth, optionalAuth, authorize } = require("../middlewares/auth");
 const upload = require("../config/multer");
@@ -22,6 +23,7 @@ router.get("/analytics/summary", auth, authorize("super-admin", "editor"), getNe
 router.get("/analytics/dashboard", auth, authorize("super-admin", "editor"), getAnalyticsDashboard);
 router.patch("/reorder", auth, authorize("super-admin", "editor"), reorderNews);
 router.patch("/:id/toggle-pin", auth, authorize("super-admin", "editor"), togglePinNews);
+router.patch("/:id/toggle-active", auth, authorize("super-admin", "editor"), toggleActiveNews);
 router.post("/:id/track", trackNewsInteraction);
 router.get("/:id", optionalAuth, getNewsById);
 router.put("/:id", auth, authorize("super-admin", "editor", "reporter"), upload.array('media'), updateNews);

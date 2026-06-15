@@ -104,6 +104,7 @@ const createNews = async (req, res) => {
   try {
     const {
       title,
+      titleLink,
       titleColor,
       titleFontSize,
       description,
@@ -158,6 +159,7 @@ const createNews = async (req, res) => {
 
     const news = await News.create({
       title,
+      titleLink: titleLink?.trim() || "",
       titleColor: titleColor || "#111827",
       titleFontSize: parseNumberField(titleFontSize, 22, 10, 60),
       description,
@@ -305,6 +307,7 @@ const updateNews = async (req, res) => {
     const { id } = req.params;
     const {
       title,
+      titleLink,
       titleColor,
       titleFontSize,
       description,
@@ -403,6 +406,7 @@ const updateNews = async (req, res) => {
       id,
       {
         title,
+        titleLink: titleLink === undefined ? existingNews.titleLink || "" : titleLink.trim(),
         titleColor: titleColor || existingNews.titleColor || "#111827",
         titleFontSize: parseNumberField(titleFontSize, existingNews.titleFontSize || 22, 10, 60),
         description,
@@ -553,6 +557,45 @@ const togglePinNews = async (req, res) => {
   }
 };
 
+const toggleActiveNews = async (req, res) => {
+  try {
+    if (!canManageAllNews(req.admin)) {
+      return res.status(403).json({ success: false, message: "Only admin/editor can change news visibility" });
+    }
+
+    const { id } = req.params;
+    const news = await News.findById(id);
+
+    if (!news) {
+      return res.status(404).json({ success: false, message: "News not found" });
+    }
+
+    news.isActive = !news.isActive;
+    await news.save();
+
+    const populatedNews = await News.findById(news._id)
+      .populate("category")
+      .populate("cities")
+      .populate("createdBy", "name email role profileImage");
+
+    const obj = populatedNews.toObject();
+    if (obj.createdBy) {
+      obj.reporter = {
+        name: obj.createdBy.name || obj.reporter?.name || "",
+        avatar: obj.createdBy.profileImage || obj.reporter?.avatar || "",
+      };
+    }
+
+    return res.json({
+      success: true,
+      message: `News ${news.isActive ? "turned on" : "turned off"} successfully`,
+      data: obj,
+    });
+  } catch (error) {
+    console.error("Toggle active news error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
 
 const getNewsAnalytics = async (req, res) => {
   try {
@@ -1083,4 +1126,5 @@ module.exports = {
   trackNewsInteraction,
   reorderNews,
   togglePinNews,
+  toggleActiveNews,
 };

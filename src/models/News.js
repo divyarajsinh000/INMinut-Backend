@@ -22,6 +22,11 @@ const newsSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    titleLink: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     titleColor: {
       type: String,
       default: "#111827",
