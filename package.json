@@ -11,16 +11,19 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1075.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "firebase-admin": "^13.6.0",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.2.0",
     "mongoose": "^9.6.3",
-    "multer": "^2.1.1",
+    "multer": "^2.2.0",
+    "multer-s3": "^3.0.1",
     "nvm": "^0.0.4",
-    "firebase-admin": "^13.6.0"
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

@@ -166,7 +166,7 @@ const createNews = async (req, res) => {
       descriptionFontSize: parseNumberField(descriptionFontSize, 16, 10, 40),
       content,
       media,
-      category,
+      category: category === "" || category === "null" ? null : category,
       cities: parseArrayField(cities),
       reporter: {
         name: req.admin?.name || "",
@@ -355,23 +355,26 @@ const updateNews = async (req, res) => {
     }
 
     // Parse mediaToKeep from JSON string if needed
-    let mediaToKeepArray = mediaToKeep;
+    let mediaToKeepArray = [];
     if (typeof mediaToKeep === 'string') {
       try {
-        mediaToKeepArray = JSON.parse(mediaToKeep);
+        const parsed = JSON.parse(mediaToKeep);
+        if (Array.isArray(parsed)) mediaToKeepArray = parsed;
       } catch (e) {
-        mediaToKeepArray = [];
+        // ignore
       }
+    } else if (Array.isArray(mediaToKeep)) {
+      mediaToKeepArray = mediaToKeep;
     }
 
     // Start with existing media that we want to keep
-    let updatedMedia = existingNews.media.filter(m => 
-      mediaToKeepArray && mediaToKeepArray.includes(m._id.toString())
-    );
+    let updatedMedia = existingNews.media
+      .filter(m => mediaToKeepArray.includes(m._id.toString()))
+      .map(m => (m.toObject ? m.toObject() : m));
 
     // Delete the files that we're no longer keeping
     const mediaToDelete = existingNews.media.filter(m => 
-      !mediaToKeepArray || !mediaToKeepArray.includes(m._id.toString())
+      !mediaToKeepArray.includes(m._id.toString())
     );
     mediaToDelete.forEach(mediaItem => {
       const filePath = path.join(__dirname, '../../', mediaItem.url);
@@ -413,7 +416,7 @@ const updateNews = async (req, res) => {
         descriptionFontSize: parseNumberField(descriptionFontSize, existingNews.descriptionFontSize || 16, 10, 40),
         content,
         media: updatedMedia,
-        category,
+        category: category === "" || category === "null" ? null : category,
         cities: parseArrayField(cities, existingNews.cities),
         hashtags: hashtags ? JSON.parse(hashtags) : existingNews.hashtags,
         isBreaking: parseBoolean(isBreaking),
