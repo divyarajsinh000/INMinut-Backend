@@ -3,6 +3,7 @@ const NewsInteraction = require("../models/NewsInteraction");
 const GuestUser = require("../models/GuestUser");
 const path = require("path");
 const fs = require("fs");
+const { deleteFromS3 } = require("../utils/s3");
 const { sendNewsNotificationToGuests } = require("../services/notificationService");
 
 const parseBoolean = (value) => {
@@ -149,7 +150,7 @@ const createNews = async (req, res) => {
 
         if (fileType) {
           media.push({
-            url: `/uploads/${fileType}s/${file.filename}`,
+            url: file.location,
             type: fileType,
             originalName: file.originalname,
           });
@@ -373,15 +374,10 @@ const updateNews = async (req, res) => {
       .map(m => (m.toObject ? m.toObject() : m));
 
     // Delete the files that we're no longer keeping
-    const mediaToDelete = existingNews.media.filter(m => 
+    const mediaToDelete = existingNews.media.filter(m =>
       !mediaToKeepArray.includes(m._id.toString())
     );
-    mediaToDelete.forEach(mediaItem => {
-      const filePath = path.join(__dirname, '../../', mediaItem.url);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    });
+    await Promise.all(mediaToDelete.map(mediaItem => deleteFromS3(mediaItem.url)));
 
     // Add new uploaded files
     if (req.files && req.files.length > 0) {
@@ -397,7 +393,7 @@ const updateNews = async (req, res) => {
 
         if (fileType) {
           updatedMedia.push({
-            url: `/uploads/${fileType}s/${file.filename}`,
+            url: file.location,
             type: fileType,
             originalName: file.originalname,
           });
@@ -467,12 +463,8 @@ const deleteNews = async (req, res) => {
     }
 
     // Delete all media files from storage
-    news.media.forEach(mediaItem => {
-      const filePath = path.join(__dirname, '../../', mediaItem.url);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    });
+    await Promise.all(news.media.map(mediaItem => deleteFromS3(mediaItem.url)));
+
 
     return res.json({
       success: true,
