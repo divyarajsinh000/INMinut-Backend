@@ -1,6 +1,5 @@
 const Advertisement = require("../models/Advertisement");
-const path = require("path");
-const fs = require("fs");
+const { deleteFromS3 } = require("../utils/s3");
 
 const parseBoolean = (value) => {
   if (typeof value === "boolean") return value;
@@ -32,15 +31,9 @@ const normalizeUrl = (url) => {
   return `https://${trimmed}`;
 };
 
-const deleteUploadedFile = (fileUrl) => {
-  if (!fileUrl) return;
-  const filePath = path.join(__dirname, "../../", fileUrl);
-  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-};
-
 const getImageUrlFromRequest = (req) => {
   if (!req.file) return null;
-  return `/uploads/images/${req.file.filename}`;
+  return req.file.location;
 };
 
 const createAdvertisement = async (req, res) => {
@@ -137,7 +130,7 @@ const updateAdvertisement = async (req, res) => {
     const newBannerImage = getImageUrlFromRequest(req);
 
     if (newBannerImage) {
-      deleteUploadedFile(advertisement.bannerImage);
+      await deleteFromS3(advertisement.bannerImage);
       advertisement.bannerImage = newBannerImage;
     }
 
@@ -171,7 +164,7 @@ const deleteAdvertisement = async (req, res) => {
       return res.status(404).json({ success: false, message: "Advertisement not found" });
     }
 
-    deleteUploadedFile(advertisement.bannerImage);
+    await deleteFromS3(advertisement.bannerImage);
 
     return res.json({ success: true, message: "Advertisement deleted successfully" });
   } catch (error) {
