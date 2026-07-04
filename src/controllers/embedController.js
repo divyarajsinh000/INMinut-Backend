@@ -6,9 +6,26 @@ const parseBoolean = (value) => {
   return Boolean(value);
 };
 
+const parseArrayField = (value, fallback = []) => {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : fallback;
+    } catch (_) {
+      return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+  return fallback;
+};
+
 const createEmbed = async (req, res) => {
   try {
-    const { title, embedCode, height, positionAfterNews, isEnabled } = req.body;
+    const { title, embedCode, height, positionAfterNews, isEnabled, categories } = req.body;
 
     if (!title || !embedCode || height === undefined || positionAfterNews === undefined) {
       return res.status(400).json({
@@ -23,12 +40,15 @@ const createEmbed = async (req, res) => {
       height: Number(height),
       positionAfterNews: Number(positionAfterNews),
       isEnabled: isEnabled === undefined ? true : parseBoolean(isEnabled),
+      categories: parseArrayField(categories),
     });
+
+    const populatedEmbed = await Embed.findById(embed._id).populate("categories");
 
     return res.status(201).json({
       success: true,
       message: "Embed created successfully",
-      data: embed,
+      data: populatedEmbed,
     });
   } catch (error) {
     console.error("Create embed error:", error);
@@ -45,10 +65,11 @@ const getEmbeds = async (req, res) => {
       query.isEnabled = true;
     }
 
-    const embeds = await Embed.find(query).sort({
-      positionAfterNews: 1,
-      createdAt: -1,
-    });
+    const sortOptions = req.query.sort === "recent" 
+      ? { createdAt: -1 } 
+      : { positionAfterNews: 1, createdAt: -1 };
+
+    const embeds = await Embed.find(query).populate("categories").sort(sortOptions);
 
     return res.json({ success: true, data: embeds });
   } catch (error) {
@@ -59,7 +80,7 @@ const getEmbeds = async (req, res) => {
 
 const getEmbedById = async (req, res) => {
   try {
-    const embed = await Embed.findById(req.params.id);
+    const embed = await Embed.findById(req.params.id).populate("categories");
     if (!embed) {
       return res.status(404).json({ success: false, message: "Embed not found" });
     }
@@ -78,15 +99,17 @@ const updateEmbed = async (req, res) => {
       return res.status(404).json({ success: false, message: "Embed not found" });
     }
 
-    const { title, embedCode, height, positionAfterNews, isEnabled } = req.body;
+    const { title, embedCode, height, positionAfterNews, isEnabled, categories } = req.body;
 
     if (title !== undefined) embed.title = title;
     if (embedCode !== undefined) embed.embedCode = embedCode;
     if (height !== undefined) embed.height = Number(height);
     if (positionAfterNews !== undefined) embed.positionAfterNews = Number(positionAfterNews);
     if (isEnabled !== undefined) embed.isEnabled = parseBoolean(isEnabled);
+    if (categories !== undefined) embed.categories = parseArrayField(categories);
 
     await embed.save();
+    await embed.populate("categories");
 
     return res.json({
       success: true,
@@ -122,6 +145,7 @@ const toggleEmbed = async (req, res) => {
 
     embed.isEnabled = !embed.isEnabled;
     await embed.save();
+    await embed.populate("categories");
 
     return res.json({
       success: true,

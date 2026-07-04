@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const categorySchema = new mongoose.Schema(
+  const categorySchema = new mongoose.Schema(
   {
     name: {
       type: String,
@@ -15,6 +15,10 @@ const categorySchema = new mongoose.Schema(
     textColor: {
       type: String,
       default: "#FFFFFF",
+    },
+    sequence: {
+      type: Number,
+      default: 0,
     },
   },
   {

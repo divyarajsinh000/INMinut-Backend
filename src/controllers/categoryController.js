@@ -41,7 +41,7 @@ const createCategory = async (req, res) => {
 
 const getCategories = async (req, res) => {
   try {
-    const categories = await Category.find().sort({ createdAt: -1 });
+    const categories = await Category.find().sort({ sequence: 1, createdAt: -1 });
     return res.json({
       success: true,
       data: categories,
@@ -113,9 +113,35 @@ const deleteCategory = async (req, res) => {
   }
 };
 
+const reorderCategories = async (req, res) => {
+  try {
+    const { orderedIds } = req.body;
+    if (!Array.isArray(orderedIds)) {
+      return res.status(400).json({ success: false, message: "orderedIds must be an array" });
+    }
+
+    const bulkOps = orderedIds.map((id, index) => ({
+      updateOne: {
+        filter: { _id: id },
+        update: { $set: { sequence: index } },
+      },
+    }));
+
+    if (bulkOps.length > 0) {
+      await Category.bulkWrite(bulkOps);
+    }
+
+    return res.json({ success: true, message: "Categories reordered successfully" });
+  } catch (error) {
+    console.error("Reorder categories error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 module.exports = {
   createCategory,
   getCategories,
   updateCategory,
   deleteCategory,
+  reorderCategories,
 };

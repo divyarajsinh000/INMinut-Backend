@@ -45,6 +45,11 @@ const advertisementSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    categories: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
+      default: [],
+      index: true,
+    },
   },
   { timestamps: true }
 );

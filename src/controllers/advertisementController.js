@@ -38,7 +38,7 @@ const getImageUrlFromRequest = (req) => {
 
 const createAdvertisement = async (req, res) => {
   try {
-    const { name, label, redirectUrl, positionAfterNews, isEnabled, cities } = req.body;
+    const { name, label, redirectUrl, positionAfterNews, isEnabled, cities, categories } = req.body;
     const bannerImage = getImageUrlFromRequest(req);
 
     if (!name || !redirectUrl || !bannerImage) {
@@ -54,11 +54,12 @@ const createAdvertisement = async (req, res) => {
       bannerImage,
       redirectUrl: normalizeUrl(redirectUrl),
       cities: parseArrayField(cities),
+      categories: parseArrayField(categories),
       positionAfterNews: (positionAfterNews !== undefined && positionAfterNews !== "") ? Number(positionAfterNews) : 4,
       isEnabled: isEnabled === undefined ? true : parseBoolean(isEnabled),
     });
 
-    const populatedAdvertisement = await Advertisement.findById(advertisement._id).populate("cities");
+    const populatedAdvertisement = await Advertisement.findById(advertisement._id).populate("cities categories");
 
     return res.status(201).json({
       success: true,
@@ -91,12 +92,13 @@ const getAdvertisements = async (req, res) => {
       ];
     }
 
+    const sortOptions = req.query.sort === "recent" 
+      ? { createdAt: -1 } 
+      : { positionAfterNews: 1, createdAt: -1 };
+
     const advertisements = await Advertisement.find(query)
-      .populate("cities")
-      .sort({
-        positionAfterNews: 1,
-        createdAt: -1,
-      });
+      .populate("cities categories")
+      .sort(sortOptions);
 
     return res.json({ success: true, data: advertisements });
   } catch (error) {
@@ -107,7 +109,7 @@ const getAdvertisements = async (req, res) => {
 
 const getAdvertisementById = async (req, res) => {
   try {
-    const advertisement = await Advertisement.findById(req.params.id).populate("cities");
+    const advertisement = await Advertisement.findById(req.params.id).populate("cities categories");
     if (!advertisement) {
       return res.status(404).json({ success: false, message: "Advertisement not found" });
     }
@@ -126,7 +128,7 @@ const updateAdvertisement = async (req, res) => {
       return res.status(404).json({ success: false, message: "Advertisement not found" });
     }
 
-    const { name, label, redirectUrl, positionAfterNews, isEnabled, cities } = req.body;
+    const { name, label, redirectUrl, positionAfterNews, isEnabled, cities, categories } = req.body;
     const newBannerImage = getImageUrlFromRequest(req);
 
     if (newBannerImage) {
@@ -138,13 +140,14 @@ const updateAdvertisement = async (req, res) => {
     if (label !== undefined) advertisement.label = label;
     if (redirectUrl !== undefined) advertisement.redirectUrl = normalizeUrl(redirectUrl);
     if (cities !== undefined) advertisement.cities = parseArrayField(cities);
+    if (categories !== undefined) advertisement.categories = parseArrayField(categories);
     if (positionAfterNews !== undefined) {
       advertisement.positionAfterNews = positionAfterNews !== "" ? Number(positionAfterNews) : 4;
     }
     if (isEnabled !== undefined) advertisement.isEnabled = parseBoolean(isEnabled);
 
     await advertisement.save();
-    await advertisement.populate("cities");
+    await advertisement.populate("cities categories");
 
     return res.json({
       success: true,
@@ -182,7 +185,7 @@ const toggleAdvertisement = async (req, res) => {
 
     advertisement.isEnabled = !advertisement.isEnabled;
     await advertisement.save();
-    await advertisement.populate("cities");
+    await advertisement.populate("cities categories");
 
     return res.json({
       success: true,

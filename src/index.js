@@ -11,6 +11,7 @@ const guestUserRoutes = require("./routes/guestUserRoutes");
 const locationRoutes = require("./routes/locationRoutes");
 const advertisementRoutes = require("./routes/advertisementRoutes");
 const embedRoutes = require("./routes/embedRoutes");
+const settingRoutes = require("./routes/settingRoutes");
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use("/api/guest-users", guestUserRoutes);
 app.use("/api/locations", locationRoutes);
 app.use("/api/advertisements", advertisementRoutes);
 app.use("/api/embeds", embedRoutes);
+app.use("/api/settings", settingRoutes);
 
 const PORT = process.env.PORT || 5000;
 

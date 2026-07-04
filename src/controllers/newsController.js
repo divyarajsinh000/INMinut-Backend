@@ -1043,7 +1043,7 @@ const trackNewsInteraction = async (req, res) => {
       return res.status(400).json({ success: false, message: "guestId and action are required" });
     }
 
-    if (!["view", "save", "unsave", "share"].includes(action)) {
+    if (!["view", "save", "unsave", "share", "like", "unlike"].includes(action)) {
       return res.status(400).json({ success: false, message: "Invalid interaction action" });
     }
 
@@ -1084,13 +1084,34 @@ const trackNewsInteraction = async (req, res) => {
       }
     }
 
+    if (action === "like") {
+      const activeLike = await NewsInteraction.findOne({ news: id, guestId, action: "like", isActive: true });
+      if (!activeLike) {
+        await NewsInteraction.create({ news: id, guestId, action: "like", isActive: true, metadata: metadata || {} });
+        await News.findByIdAndUpdate(id, { $inc: { likeCount: 1 } });
+        changed = true;
+      }
+    }
+
+    if (action === "unlike") {
+      const activeLike = await NewsInteraction.findOne({ news: id, guestId, action: "like", isActive: true }).sort({ createdAt: -1 });
+      if (activeLike) {
+        activeLike.isActive = false;
+        await activeLike.save();
+        await NewsInteraction.create({ news: id, guestId, action: "unlike", isActive: true, metadata: metadata || {} });
+        await News.findByIdAndUpdate(id, { $inc: { likeCount: -1 } });
+        await News.updateOne({ _id: id, likeCount: { $lt: 0 } }, { $set: { likeCount: 0 } });
+        changed = true;
+      }
+    }
+
     if (action === "share") {
       await NewsInteraction.create({ news: id, guestId, action: "share", metadata: metadata || {} });
       await News.findByIdAndUpdate(id, { $inc: { shareCount: 1 } });
       changed = true;
     }
 
-    const updatedNews = await News.findById(id).select("viewCount saveCount shareCount");
+    const updatedNews = await News.findById(id).select("viewCount saveCount shareCount likeCount");
 
     return res.json({
       success: true,

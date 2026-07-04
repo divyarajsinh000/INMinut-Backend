@@ -21,7 +21,7 @@ const createCountry = async (req, res) => {
 const getCountries = async (req, res) => {
   try {
     const query = req.query.all === "true" ? {} : { isActive: true };
-    const countries = await Country.find(query).sort({ name: 1 });
+    const countries = await Country.find(query).sort({ sequence: 1, name: 1 });
     return res.json({ success: true, data: countries });
   } catch (error) {
     console.error("Get countries error:", error);
@@ -76,7 +76,7 @@ const getStates = async (req, res) => {
   try {
     const query = req.query.all === "true" ? {} : { isActive: true };
     if (req.query.country) query.country = req.query.country;
-    const states = await State.find(query).populate("country").sort({ name: 1 });
+    const states = await State.find(query).populate("country").sort({ sequence: 1, name: 1 });
     return res.json({ success: true, data: states });
   } catch (error) {
     console.error("Get states error:", error);
@@ -132,7 +132,7 @@ const getCities = async (req, res) => {
     const query = req.query.all === "true" ? {} : { isActive: true };
     if (req.query.state) query.state = req.query.state;
     if (req.query.country) query.country = req.query.country;
-    const cities = await City.find(query).populate("state").populate("country").sort({ name: 1 });
+    const cities = await City.find(query).populate("state").populate("country").sort({ sequence: 1, name: 1 });
     return res.json({ success: true, data: cities });
   } catch (error) {
     console.error("Get cities error:", error);
@@ -167,6 +167,51 @@ const deleteCity = async (req, res) => {
   }
 };
 
+const reorderCountries = async (req, res) => {
+  try {
+    const { orderedIds } = req.body;
+    if (!Array.isArray(orderedIds)) return res.status(400).json({ success: false, message: "orderedIds must be an array" });
+    
+    await Promise.all(
+      orderedIds.map((id, index) => Country.findByIdAndUpdate(id, { sequence: index }))
+    );
+    return res.json({ success: true, message: "Countries reordered successfully" });
+  } catch (error) {
+    console.error("Reorder countries error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+const reorderStates = async (req, res) => {
+  try {
+    const { orderedIds } = req.body;
+    if (!Array.isArray(orderedIds)) return res.status(400).json({ success: false, message: "orderedIds must be an array" });
+    
+    await Promise.all(
+      orderedIds.map((id, index) => State.findByIdAndUpdate(id, { sequence: index }))
+    );
+    return res.json({ success: true, message: "States reordered successfully" });
+  } catch (error) {
+    console.error("Reorder states error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+const reorderCities = async (req, res) => {
+  try {
+    const { orderedIds } = req.body;
+    if (!Array.isArray(orderedIds)) return res.status(400).json({ success: false, message: "orderedIds must be an array" });
+    
+    await Promise.all(
+      orderedIds.map((id, index) => City.findByIdAndUpdate(id, { sequence: index }))
+    );
+    return res.json({ success: true, message: "Cities reordered successfully" });
+  } catch (error) {
+    console.error("Reorder cities error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 module.exports = {
   createCountry,
   getCountries,
@@ -180,4 +225,7 @@ module.exports = {
   getCities,
   updateCity,
   deleteCity,
+  reorderCountries,
+  reorderStates,
+  reorderCities,
 };

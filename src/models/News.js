@@ -73,6 +73,10 @@ const newsSchema = new mongoose.Schema(
         type: String,
       },
     },
+    hideReporter: {
+      type: Boolean,
+      default: false,
+    },
     hashtags: {
       type: [String],
       default: [],
@@ -133,6 +137,12 @@ const newsSchema = new mongoose.Schema(
       index: true,
     },
     shareCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      index: true,
+    },
+    likeCount: {
       type: Number,
       default: 0,
       min: 0,
