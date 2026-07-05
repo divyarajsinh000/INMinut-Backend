@@ -38,7 +38,7 @@ const registerAdmin = async (req, res) => {
       role: role || "editor",
     });
 
-    const token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET || "your-secret-key", {
+    const token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET, {
       expiresIn: "30d",
     });
 
@@ -89,7 +89,7 @@ const loginAdmin = async (req, res) => {
       });
     }
 
-    const token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET || "your-secret-key", {
+    const token = jwt.sign({ id: admin._id }, process.env.JWT_SECRET , {
       expiresIn: "30d",
     });
 

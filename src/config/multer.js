@@ -67,7 +67,7 @@ const storage = isDummyS3 ? multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 200 * 1024 * 1024, fieldSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024, fieldSize: 10 * 1024 * 1024 },
   fileFilter,
 });
 

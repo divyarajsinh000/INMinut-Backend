@@ -11,6 +11,8 @@ const {
 const { auth, authorize } = require("../middlewares/auth");
 const upload = require("../config/multer");
 
+const { trackLimiter } = require("../middlewares/security");
+
 const router = express.Router();
 
 router.get("/", getAdvertisements);
@@ -19,6 +21,6 @@ router.post("/", auth, authorize("super-admin", "editor"), upload.single("banner
 router.put("/:id", auth, authorize("super-admin", "editor"), upload.single("bannerImage"), updateAdvertisement);
 router.patch("/:id/toggle", auth, authorize("super-admin", "editor"), toggleAdvertisement);
 router.delete("/:id", auth, authorize("super-admin"), deleteAdvertisement);
-router.post("/:id/track", trackAdInteraction);
+router.post("/:id/track", trackLimiter, trackAdInteraction);
 
 module.exports = router;

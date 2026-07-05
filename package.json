@@ -23,7 +23,13 @@
     "multer": "^2.2.0",
     "multer-s3": "^3.0.1",
     "nvm": "^0.0.4",
-    "uuid": "^14.0.1"
+    "uuid": "^14.0.1",
+    "compression": "^1.8.1",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^8.1.0",
+    "hpp": "^0.2.3",
+    "express-mongo-sanitize": "^2.2.0",
+    "morgan": "^1.10.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

@@ -1,0 +1,7 @@
+Applied security updates:
+- Route specific rate limiters added.
+- News endpoints protected.
+- Guest registration protected.
+- Track endpoints protected.
+- Upload limit reduced to 50MB.
+Remember to run npm install and rebuild Docker.

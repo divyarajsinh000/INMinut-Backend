@@ -10,12 +10,13 @@ const {
   updateProfile,
 } = require("../controllers/adminController");
 const { auth, authorize } = require("../middlewares/auth");
+const { loginLimiter } = require("../middlewares/security");
 const upload = require("../config/multer");
 
 const router = express.Router();
 
-router.post("/register", registerAdmin);
-router.post("/login", loginAdmin);
+router.post("/register", loginLimiter, registerAdmin);
+router.post("/login", loginLimiter, loginAdmin);
 router.get("/me", auth, getMe);
 router.put("/profile/update", auth, upload.single("profileImage"), updateProfile);
 

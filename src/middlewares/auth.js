@@ -9,7 +9,7 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ success: false, message: "No token, authorization denied" });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const admin = await Admin.findById(decoded.id).select("-password");
 
     if (!admin) {
@@ -28,7 +28,7 @@ const optionalAuth = async (req, res, next) => {
     const token = req.header("Authorization")?.replace("Bearer ", "");
 
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const admin = await Admin.findById(decoded.id).select("-password");
       if (admin) {
         req.admin = admin;
