@@ -22,7 +22,21 @@ const securityMiddleware = [
   helmet(),
   compression(),
   hpp(),
-  mongoSanitize(),
+  // Custom wrapper around mongoSanitize to avoid "Cannot set property query"
+  // error in newer Node.js versions where req.query is a read-only getter.
+  // The library does `req[key] = target` which fails for `query`.
+  (req, res, next) => {
+    ['body', 'params'].forEach((key) => {
+      if (req[key]) {
+        req[key] = mongoSanitize.sanitize(req[key]);
+      }
+    });
+    // For req.query, use Object.assign to mutate in-place instead of reassigning
+    if (req.query) {
+      Object.assign(req.query, mongoSanitize.sanitize(Object.assign({}, req.query)));
+    }
+    next();
+  },
   morgan("combined"),
 ];
 
