@@ -16,7 +16,7 @@ const newsInteractionSchema = new mongoose.Schema(
     },
     action: {
       type: String,
-      enum: ["view", "save", "unsave", "share"],
+      enum: ["view", "save", "unsave", "share", "like", "unlike"],
       required: true,
       index: true,
     },
