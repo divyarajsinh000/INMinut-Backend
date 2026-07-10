@@ -30,17 +30,17 @@ const allowedOrigins = [
 ];
 console.log("Bucket:", process.env.AWS_S3_BUCKET);
 console.log("Region:", process.env.AWS_REGION);
-app.use(cors({
+const corsOptions = {
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
- console.warn(`Blocked by CORS: ${origin}`);
-    return callback(new Error("Origin not allowed by CORS"));
+
+    console.error("Blocked CORS origin:", origin);
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
   },
-
+  credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-
   allowedHeaders: [
     "Content-Type",
     "Authorization",
@@ -48,9 +48,11 @@ app.use(cors({
     "Origin",
     "X-Requested-With",
   ],
-  credentials: true,
-   optionsSuccessStatus: 204,
-}));
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
