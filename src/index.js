@@ -24,6 +24,9 @@ securityMiddleware.forEach((mw) => app.use(mw));
 const allowedOrigins = [
   "https://admin.inminut.com",
   "https://inminut.com",
+    "http://localhost:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
 ];
 console.log("Bucket:", process.env.AWS_S3_BUCKET);
 console.log("Region:", process.env.AWS_REGION);
@@ -32,9 +35,21 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    return callback(new Error("Not allowed by CORS"));
+ console.warn(`Blocked by CORS: ${origin}`);
+    return callback(new Error("Origin not allowed by CORS"));
   },
+
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "Accept",
+    "Origin",
+    "X-Requested-With",
+  ],
   credentials: true,
+   optionsSuccessStatus: 204,
 }));
 
 app.use(express.json({ limit: "1mb" }));
