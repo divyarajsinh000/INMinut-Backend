@@ -7,7 +7,7 @@ const morgan = require("morgan");
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 2000, // Increased for 20-25 users (allows ~133 requests per minute total)
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -49,7 +49,7 @@ module.exports = {
 
 const publicLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -70,7 +70,7 @@ const guestLimiter = rateLimit({
 
 const trackLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500,
+  max: 700,
   standardHeaders: true,
   legacyHeaders: false,
 });
