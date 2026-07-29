@@ -6,6 +6,102 @@ const fs = require("fs");
 const { deleteFromS3 } = require("../utils/s3");
 const { sendNewsNotificationToGuests } = require("../services/notificationService");
 
+const isRemoteUrl = (value = "") =>
+  /^https?:\/\//i.test(String(value));
+
+const getUploadedFileUrl = (file) => {
+  if (!file) return null;
+
+  // AWS S3 / multer-s3
+  if (file.location) {
+    return file.location;
+  }
+
+  // Other cloud-storage adapters
+  if (file.url) {
+    return file.url;
+  }
+
+  // Local disk storage
+  if (file.filename) {
+    return `/uploads/${file.filename}`;
+  }
+
+  if (file.path) {
+    const normalizedPath = String(file.path).replace(/\\/g, "/");
+    const uploadsIndex = normalizedPath.lastIndexOf("/uploads/");
+
+    if (uploadsIndex >= 0) {
+      return normalizedPath.slice(uploadsIndex);
+    }
+
+    return `/uploads/${path.basename(normalizedPath)}`;
+  }
+
+  return null;
+};
+
+const getUploadedMediaType = (mimetype = "") => {
+  if (mimetype.startsWith("image/")) return "image";
+  if (mimetype.startsWith("video/")) return "video";
+  if (mimetype === "application/pdf") return "pdf";
+  return null;
+};
+
+const mapUploadedFilesToMedia = (files = []) =>
+  files
+    .map((file) => {
+      const type = getUploadedMediaType(file?.mimetype);
+      const url = getUploadedFileUrl(file);
+
+      if (!type || !url) {
+        console.error("Unable to resolve uploaded media file:", {
+          originalName: file?.originalname,
+          mimetype: file?.mimetype,
+          location: file?.location,
+          filename: file?.filename,
+          path: file?.path,
+          key: file?.key,
+        });
+
+        return null;
+      }
+
+      return {
+        url,
+        type,
+        originalName: file.originalname,
+      };
+    })
+    .filter(Boolean);
+
+const deleteStoredMedia = async (mediaUrl) => {
+  if (!mediaUrl) return;
+
+  // S3 or any remote URL
+  if (isRemoteUrl(mediaUrl)) {
+    await deleteFromS3(mediaUrl);
+    return;
+  }
+
+  // Local development file
+  if (String(mediaUrl).startsWith("/uploads/")) {
+    const relativePath = String(mediaUrl)
+      .replace(/^\/+/, "")
+      .replace(/\//g, path.sep);
+
+    const absolutePath = path.join(process.cwd(), relativePath);
+
+    try {
+      await fs.promises.unlink(absolutePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+};
+
 const parseBoolean = (value) => {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.toLowerCase() === "true";
@@ -135,28 +231,8 @@ const createNews = async (req, res) => {
       }
     }
 
-    // Process uploaded files
-    const media = [];
-    if (req.files && req.files.length > 0) {
-      req.files.forEach(file => {
-        let fileType;
-        if (file.mimetype.startsWith('image/')) {
-          fileType = 'image';
-        } else if (file.mimetype.startsWith('video/')) {
-          fileType = 'video';
-        } else if (file.mimetype === 'application/pdf') {
-          fileType = 'pdf';
-        }
-
-        if (fileType) {
-          media.push({
-            url: file.location,
-            type: fileType,
-            originalName: file.originalname,
-          });
-        }
-      });
-    }
+    // Supports both multer-s3 in production and diskStorage locally.
+    const media = mapUploadedFilesToMedia(req.files || []);
 
     const news = await News.create({
       title,
@@ -173,7 +249,7 @@ const createNews = async (req, res) => {
         name: req.admin?.name || "",
         avatar: req.admin?.profileImage || "",
       },
-      hashtags: hashtags ? JSON.parse(hashtags) : [],
+      hashtags: parseArrayField(hashtags),
       isBreaking: parseBoolean(isBreaking),
       breakingText: breakingText || "Breaking News",
       breakingBgColor: breakingBgColor || "#EF4444",
@@ -213,6 +289,17 @@ const createNews = async (req, res) => {
     });
   } catch (error) {
     console.error("Create news error:", error);
+
+    if (error?.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message:
+          Object.values(error.errors || {})
+            .map((item) => item.message)
+            .join(", ") || "News validation failed",
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -377,29 +464,13 @@ const updateNews = async (req, res) => {
     const mediaToDelete = existingNews.media.filter(m =>
       !mediaToKeepArray.includes(m._id.toString())
     );
-    await Promise.all(mediaToDelete.map(mediaItem => deleteFromS3(mediaItem.url)));
+    await Promise.all(mediaToDelete.map((mediaItem) => deleteStoredMedia(mediaItem.url)));
 
-    // Add new uploaded files
-    if (req.files && req.files.length > 0) {
-      req.files.forEach(file => {
-        let fileType;
-        if (file.mimetype.startsWith('image/')) {
-          fileType = 'image';
-        } else if (file.mimetype.startsWith('video/')) {
-          fileType = 'video';
-        } else if (file.mimetype === 'application/pdf') {
-          fileType = 'pdf';
-        }
-
-        if (fileType) {
-          updatedMedia.push({
-            url: file.location,
-            type: fileType,
-            originalName: file.originalname,
-          });
-        }
-      });
-    }
+    // Add new uploaded files from S3 or local disk storage.
+    updatedMedia = [
+      ...updatedMedia,
+      ...mapUploadedFilesToMedia(req.files || []),
+    ];
 
     const news = await News.findByIdAndUpdate(
       id,
@@ -414,7 +485,7 @@ const updateNews = async (req, res) => {
         media: updatedMedia,
         category: category === "" || category === "null" ? null : category,
         cities: parseArrayField(cities, existingNews.cities),
-        hashtags: hashtags ? JSON.parse(hashtags) : existingNews.hashtags,
+        hashtags: hashtags === undefined ? existingNews.hashtags : parseArrayField(hashtags),
         isBreaking: parseBoolean(isBreaking),
         breakingText: breakingText || existingNews.breakingText || "Breaking News",
         breakingBgColor: breakingBgColor || existingNews.breakingBgColor || "#EF4444",
@@ -435,10 +506,34 @@ const updateNews = async (req, res) => {
       };
     }
 
+    let notificationResult = null;
+    try {
+      if (news.isActive === false) {
+        notificationResult = {
+          success: true,
+          sent: 0,
+          failed: 0,
+          skipped: true,
+          reason: "Updated news is off/hidden",
+        };
+      } else {
+        notificationResult = await sendNewsNotificationToGuests(news);
+      }
+    } catch (notificationError) {
+      console.error("Updated news notification error:", notificationError);
+      notificationResult = {
+        success: false,
+        sent: 0,
+        failed: 0,
+        error: notificationError.message,
+      };
+    }
+
     return res.json({
       success: true,
       message: "News updated successfully",
       data: obj,
+      notification: notificationResult,
     });
   } catch (error) {
     console.error("Update news error:", error);
@@ -463,7 +558,7 @@ const deleteNews = async (req, res) => {
     }
 
     // Delete all media files from storage
-    await Promise.all(news.media.map(mediaItem => deleteFromS3(mediaItem.url)));
+    await Promise.all(news.media.map((mediaItem) => deleteStoredMedia(mediaItem.url)));
 
 
     return res.json({
@@ -652,7 +747,7 @@ const getNewsAnalytics = async (req, res) => {
 
 const getTopList = (items, limit) => items.slice(0, limit).map((item, index) => ({ rank: index + 1, ...item }));
 
-const fillLastDaysTrend = (rawRows, days = 14) => {
+const fillLastDaysTrend = (rawRows, days = 14, rangeEnd = new Date()) => {
   const map = new Map();
   rawRows.forEach((row) => {
     const day = row?._id?.day;
@@ -667,7 +762,7 @@ const fillLastDaysTrend = (rawRows, days = 14) => {
   });
 
   return Array.from({ length: days }).map((_, index) => {
-    const date = new Date();
+    const date = new Date(rangeEnd);
     date.setDate(date.getDate() - (days - 1 - index));
     const key = date.toISOString().slice(0, 10);
     return map.get(key) || { date: key, views: 0, saves: 0, shares: 0, total: 0 };
@@ -676,7 +771,63 @@ const fillLastDaysTrend = (rawRows, days = 14) => {
 
 const getAnalyticsDashboard = async (req, res) => {
   try {
-    const limit = Math.max(Number(req.query.limit || 10), 1);
+    const limit = Math.min(Math.max(Number(req.query.limit || 10), 1), 50);
+    const {
+      period = "1m",
+      startDate: customStartDate,
+      endDate: customEndDate,
+      status = "all",
+      breaking = "all",
+      pinned = "all",
+      search = "",
+    } = req.query;
+
+    const rangeEnd = customEndDate ? new Date(customEndDate) : new Date();
+    rangeEnd.setHours(23, 59, 59, 999);
+
+    let rangeStart = null;
+    if (period === "custom") {
+      rangeStart = customStartDate ? new Date(customStartDate) : null;
+    } else if (period !== "all") {
+      const daysByPeriod = { today: 0, "7d": 6, "1m": 29, "3m": 89, "6m": 179, "1y": 364 };
+      rangeStart = new Date(rangeEnd);
+      rangeStart.setDate(rangeStart.getDate() - (daysByPeriod[period] ?? 29));
+    }
+    if (rangeStart) rangeStart.setHours(0, 0, 0, 0);
+
+    if (Number.isNaN(rangeEnd.getTime()) || (rangeStart && Number.isNaN(rangeStart.getTime()))) {
+      return res.status(400).json({ success: false, message: "Invalid analytics date" });
+    }
+    if (rangeStart && rangeStart > rangeEnd) {
+      return res.status(400).json({ success: false, message: "Start date cannot be after end date" });
+    }
+
+    const newsMatch = {};
+    if (rangeStart) newsMatch.createdAt = { $gte: rangeStart, $lte: rangeEnd };
+    if (status === "active") newsMatch.isActive = { $ne: false };
+    if (status === "inactive") newsMatch.isActive = false;
+    if (breaking === "yes") newsMatch.isBreaking = true;
+    if (breaking === "no") newsMatch.isBreaking = { $ne: true };
+    if (pinned === "yes") newsMatch.isPinned = true;
+    if (pinned === "no") newsMatch.isPinned = { $ne: true };
+    if (String(search).trim()) {
+      const keyword = String(search).trim();
+      newsMatch.$or = [
+        { title: { $regex: keyword, $options: "i" } },
+        { description: { $regex: keyword, $options: "i" } },
+        { content: { $regex: keyword, $options: "i" } },
+        { hashtags: { $regex: keyword, $options: "i" } },
+        { "reporter.name": { $regex: keyword, $options: "i" } },
+      ];
+    }
+
+    const interactionMatch = {
+      createdAt: rangeStart ? { $gte: rangeStart, $lte: rangeEnd } : { $lte: rangeEnd },
+    };
+    const guestMatch = rangeStart
+      ? { createdAt: { $gte: rangeStart, $lte: rangeEnd } }
+      : { createdAt: { $lte: rangeEnd } };
+
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const tomorrowStart = new Date(todayStart);
@@ -686,6 +837,7 @@ const getAnalyticsDashboard = async (req, res) => {
     last14Days.setHours(0, 0, 0, 0);
 
     const totalsAgg = await News.aggregate([
+      { $match: newsMatch },
       {
         $group: {
           _id: null,
@@ -704,7 +856,7 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const todayNewsAgg = await News.aggregate([
-      { $match: { createdAt: { $gte: todayStart, $lt: tomorrowStart } } },
+      { $match: newsMatch },
       {
         $group: {
           _id: null,
@@ -719,7 +871,7 @@ const getAnalyticsDashboard = async (req, res) => {
     const todayInteractionAgg = await NewsInteraction.aggregate([
       {
         $match: {
-          createdAt: { $gte: todayStart, $lt: tomorrowStart },
+          ...interactionMatch,
           action: { $in: ["view", "save", "share"] },
         },
       },
@@ -743,10 +895,10 @@ const getAnalyticsDashboard = async (req, res) => {
       { todayViews: 0, todaySaves: 0, todayShares: 0, uniqueUserSet: new Set() }
     );
 
-    const todayGuestUsers = await GuestUser.countDocuments({ createdAt: { $gte: todayStart, $lt: tomorrowStart } });
+    const todayGuestUsers = await GuestUser.countDocuments(guestMatch);
 
     const todayTopCategories = await News.aggregate([
-      { $match: { createdAt: { $gte: todayStart, $lt: tomorrowStart } } },
+      { $match: newsMatch },
       { $lookup: { from: "categories", localField: "category", foreignField: "_id", as: "category" } },
       { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
       {
@@ -766,7 +918,7 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const todayTopNewsCities = await News.aggregate([
-      { $match: { createdAt: { $gte: todayStart, $lt: tomorrowStart } } },
+      { $match: newsMatch },
       {
         $facet: {
           cityNews: [
@@ -807,6 +959,7 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const guestTotalsAgg = await GuestUser.aggregate([
+      { $match: guestMatch },
       {
         $group: {
           _id: null,
@@ -821,21 +974,21 @@ const getAnalyticsDashboard = async (req, res) => {
       },
     ]);
 
-    const topNewsByViews = await News.find({})
+    const topNewsByViews = await News.find(newsMatch)
       .populate("category")
       .populate("cities")
       .sort({ viewCount: -1, publishedDate: -1 })
       .limit(limit)
       .select("title category cities viewCount saveCount shareCount publishedDate isPinned isBreaking");
 
-    const topNewsBySaves = await News.find({})
+    const topNewsBySaves = await News.find(newsMatch)
       .populate("category")
       .populate("cities")
       .sort({ saveCount: -1, publishedDate: -1 })
       .limit(limit)
       .select("title category cities viewCount saveCount shareCount publishedDate isPinned isBreaking");
 
-    const topNewsByShares = await News.find({})
+    const topNewsByShares = await News.find(newsMatch)
       .populate("category")
       .populate("cities")
       .sort({ shareCount: -1, publishedDate: -1 })
@@ -843,6 +996,7 @@ const getAnalyticsDashboard = async (req, res) => {
       .select("title category cities viewCount saveCount shareCount publishedDate isPinned isBreaking");
 
     const topCategories = await News.aggregate([
+      { $match: newsMatch },
       { $lookup: { from: "categories", localField: "category", foreignField: "_id", as: "category" } },
       { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } },
       {
@@ -862,6 +1016,7 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const topHashtags = await News.aggregate([
+      { $match: newsMatch },
       { $unwind: "$hashtags" },
       {
         $group: {
@@ -878,6 +1033,7 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const topNewsCities = await News.aggregate([
+      { $match: newsMatch },
       { $unwind: { path: "$cities", preserveNullAndEmptyArrays: false } },
       { $lookup: { from: "cities", localField: "cities", foreignField: "_id", as: "city" } },
       { $unwind: "$city" },
@@ -896,6 +1052,7 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const topUserCities = await GuestUser.aggregate([
+      { $match: guestMatch },
       { $unwind: { path: "$cityPreferences", preserveNullAndEmptyArrays: false } },
       { $lookup: { from: "cities", localField: "cityPreferences", foreignField: "_id", as: "city" } },
       { $unwind: "$city" },
@@ -933,7 +1090,7 @@ const getAnalyticsDashboard = async (req, res) => {
     const actionTrendRaw = await NewsInteraction.aggregate([
       {
         $match: {
-          createdAt: { $gte: last14Days },
+          ...interactionMatch,
           action: { $in: ["view", "save", "share"] },
         },
       },
@@ -950,7 +1107,7 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const newsPublishTrend = await News.aggregate([
-      { $match: { createdAt: { $gte: last30Days } } },
+      { $match: newsMatch },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
@@ -963,12 +1120,14 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const platformBreakdown = await GuestUser.aggregate([
+      { $match: guestMatch },
       { $group: { _id: { $ifNull: ["$platform", "unknown"] }, users: { $sum: 1 } } },
       { $project: { _id: 0, platform: "$_id", users: 1 } },
       { $sort: { users: -1 } },
     ]);
 
     const mediaTypeBreakdown = await News.aggregate([
+      { $match: newsMatch },
       { $unwind: { path: "$media", preserveNullAndEmptyArrays: false } },
       { $group: { _id: "$media.type", count: { $sum: 1 } } },
       { $project: { _id: 0, type: "$_id", count: 1 } },
@@ -976,6 +1135,7 @@ const getAnalyticsDashboard = async (req, res) => {
     ]);
 
     const reporterPerformance = await News.aggregate([
+      { $match: newsMatch },
       {
         $group: {
           _id: "$reporter.name",
@@ -993,6 +1153,16 @@ const getAnalyticsDashboard = async (req, res) => {
     return res.json({
       success: true,
       data: {
+        appliedFilters: {
+          period,
+          startDate: rangeStart ? rangeStart.toISOString() : null,
+          endDate: rangeEnd.toISOString(),
+          status,
+          breaking,
+          pinned,
+          search,
+          limit,
+        },
         totals: {
           ...(totalsAgg[0] || { totalNews: 0, activeNews: 0, inactiveNews: 0, totalViews: 0, totalSaves: 0, totalShares: 0, pinnedNews: 0, breakingNews: 0, newsWithMedia: 0, newsWithoutCity: 0 }),
           ...(guestTotalsAgg[0] || { totalGuestUsers: 0, notificationsEnabledUsers: 0, androidUsers: 0, iosUsers: 0, webUsers: 0, unknownUsers: 0, usersWithCityPreference: 0 }),
@@ -1015,7 +1185,11 @@ const getAnalyticsDashboard = async (req, res) => {
         viewsByGuestCity: getTopList(viewsByGuestCity, limit),
         reporterPerformance: getTopList(reporterPerformance, limit),
         charts: {
-          actionTrend: fillLastDaysTrend(actionTrendRaw, 14),
+          actionTrend: fillLastDaysTrend(
+            actionTrendRaw,
+            Math.min(Math.max(rangeStart ? Math.ceil((rangeEnd - rangeStart) / 86400000) + 1 : 30, 1), 366),
+            rangeEnd
+          ),
           newsPublishTrend,
           platformBreakdown,
           mediaTypeBreakdown,
