@@ -19,7 +19,11 @@ const loginLimiter = rateLimit({
 });
 
 const securityMiddleware = [
-  helmet(),
+  helmet({
+    crossOriginResourcePolicy: false,
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: false,
+  }),
   compression(),
   hpp(),
   // Custom wrapper around mongoSanitize to avoid "Cannot set property query"

@@ -20,6 +20,10 @@ const mongoose = require("mongoose");
       type: Number,
       default: 0,
     },
+    isHighlighted: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

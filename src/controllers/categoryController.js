@@ -2,7 +2,7 @@ const Category = require("../models/Category");
 
 const createCategory = async (req, res) => {
   try {
-    const { name, backgroundColor, textColor } = req.body;
+    const { name, backgroundColor, textColor, isHighlighted } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -23,6 +23,7 @@ const createCategory = async (req, res) => {
       name,
       backgroundColor,
       textColor,
+      isHighlighted: Boolean(isHighlighted),
     });
 
     return res.status(201).json({
@@ -58,11 +59,18 @@ const getCategories = async (req, res) => {
 const updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, backgroundColor, textColor } = req.body;
+    const { name, backgroundColor, textColor, isHighlighted } = req.body;
+
+    const updates = {
+      name,
+      backgroundColor,
+      textColor,
+      ...(typeof isHighlighted === "boolean" ? { isHighlighted } : {}),
+    };
 
     const category = await Category.findByIdAndUpdate(
       id,
-      { name, backgroundColor, textColor },
+      updates,
       { new: true }
     );
 

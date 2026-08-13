@@ -41,6 +41,33 @@ const getUploadedFileUrl = (file) => {
   return null;
 };
 
+const looksLikeMojibake = (value = "") => /[ÃÂÊËÎÏÔÛâãäåçèéêëìíîïñòóôõöùúûüýþÿÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßª«»¼½¾…]/.test(value);
+
+const normalizeOriginalName = (value = "") => {
+  if (!value) return value;
+
+  let name = String(value).trim();
+  try {
+    name = decodeURIComponent(name);
+  } catch {
+    // keep original if it is not percent-encoded
+  }
+
+  if (looksLikeMojibake(name)) {
+    try {
+      const latin1Bytes = Buffer.from(name, 'latin1');
+      const decoded = latin1Bytes.toString('utf8');
+      if (decoded && decoded !== name) {
+        return decoded;
+      }
+    } catch {
+      // ignore and fall through
+    }
+  }
+
+  return name;
+};
+
 const getUploadedMediaType = (mimetype = "") => {
   if (mimetype.startsWith("image/")) return "image";
   if (mimetype.startsWith("video/")) return "video";
@@ -70,7 +97,7 @@ const mapUploadedFilesToMedia = (files = []) =>
       return {
         url,
         type,
-        originalName: file.originalname,
+        originalName: normalizeOriginalName(file.originalname),
       };
     })
     .filter(Boolean);

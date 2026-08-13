@@ -4,6 +4,16 @@ const bcrypt = require("bcryptjs");
 
 const ADMIN_ROLES = ["super-admin", "editor", "reporter"];
 
+const getUploadedFileUrl = (file) => {
+  if (!file) return null;
+
+  if (file.location) return file.location;
+  if (file.url) return file.url;
+  if (file.filename) return `/uploads/images/${file.filename}`;
+
+  return null;
+};
+
 
 const registerAdmin = async (req, res) => {
   try {
@@ -50,6 +60,7 @@ const registerAdmin = async (req, res) => {
         name: admin.name,
         email: admin.email,
         role: admin.role,
+        profileImage: admin.profileImage || "",
         token,
       },
     });
@@ -101,6 +112,7 @@ const loginAdmin = async (req, res) => {
         name: admin.name,
         email: admin.email,
         role: admin.role,
+        profileImage: admin.profileImage || "",
         token,
       },
     });
@@ -261,7 +273,10 @@ const updateProfile = async (req, res) => {
     }
 
     if (req.file) {
-      updateData.profileImage = `/uploads/images/${req.file.filename}`;
+      const uploadedUrl = getUploadedFileUrl(req.file);
+      if (uploadedUrl) {
+        updateData.profileImage = uploadedUrl;
+      }
     }
 
     const admin = await Admin.findByIdAndUpdate(
