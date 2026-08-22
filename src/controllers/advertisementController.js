@@ -132,9 +132,9 @@ const updateAdvertisement = async (req, res) => {
       advertisement.bannerImage = newBannerImage;
     }
 
-    if (name !== undefined) advertisement.name = name;
-    if (label !== undefined) advertisement.label = label;
-    if (redirectUrl !== undefined) advertisement.redirectUrl = normalizeUrl(redirectUrl);
+    if (name !== undefined) advertisement.name = sanitizeString(name);
+    if (label !== undefined) advertisement.label = sanitizeString(label);
+    if (redirectUrl !== undefined) advertisement.redirectUrl = sanitizeUrl(redirectUrl);
     if (cities !== undefined) advertisement.cities = parseArrayField(cities);
     if (categories !== undefined) advertisement.categories = parseArrayField(categories);
     if (positionAfterNews !== undefined) {
