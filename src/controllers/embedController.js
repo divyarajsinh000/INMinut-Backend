@@ -52,7 +52,7 @@ const createEmbed = async (req, res) => {
     });
   } catch (error) {
     console.error("Create embed error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -74,7 +74,7 @@ const getEmbeds = async (req, res) => {
     return res.json({ success: true, data: embeds });
   } catch (error) {
     console.error("Get embeds error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -88,7 +88,7 @@ const getEmbedById = async (req, res) => {
     return res.json({ success: true, data: embed });
   } catch (error) {
     console.error("Get embed by id error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -118,7 +118,7 @@ const updateEmbed = async (req, res) => {
     });
   } catch (error) {
     console.error("Update embed error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -132,7 +132,7 @@ const deleteEmbed = async (req, res) => {
     return res.json({ success: true, message: "Embed deleted successfully" });
   } catch (error) {
     console.error("Delete embed error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -154,7 +154,7 @@ const toggleEmbed = async (req, res) => {
     });
   } catch (error) {
     console.error("Toggle embed error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -188,7 +188,7 @@ const trackEmbedInteraction = async (req, res) => {
     });
   } catch (error) {
     console.error("Track embed interaction error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 

@@ -57,7 +57,7 @@ const updateDeviceNotificationsByAdmin = async (req, res) => {
     console.error("Admin device notification update error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -97,7 +97,7 @@ const bulkUpdateNotificationsByAdmin = async (req, res) => {
     console.error("Bulk admin notification update error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };

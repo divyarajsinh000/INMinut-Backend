@@ -35,7 +35,7 @@ const createCategory = async (req, res) => {
     console.error("Create category error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -51,7 +51,7 @@ const getCategories = async (req, res) => {
     console.error("Get categories error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -90,7 +90,7 @@ const updateCategory = async (req, res) => {
     console.error("Update category error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -116,7 +116,7 @@ const deleteCategory = async (req, res) => {
     console.error("Delete category error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -142,7 +142,7 @@ const reorderCategories = async (req, res) => {
     return res.json({ success: true, message: "Categories reordered successfully" });
   } catch (error) {
     console.error("Reorder categories error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 

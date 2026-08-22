@@ -68,7 +68,7 @@ const registerAdmin = async (req, res) => {
     console.error("Register admin error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -120,7 +120,7 @@ const loginAdmin = async (req, res) => {
     console.error("Login admin error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -136,7 +136,7 @@ const getMe = async (req, res) => {
     console.error("Get me error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -152,7 +152,7 @@ const getAdmins = async (req, res) => {
     console.error("Get admins error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -177,7 +177,7 @@ const getAdminById = async (req, res) => {
     console.error("Get admin by id error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -223,7 +223,7 @@ const updateAdmin = async (req, res) => {
     console.error("Update admin error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -256,7 +256,7 @@ const deleteAdmin = async (req, res) => {
     console.error("Delete admin error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -294,7 +294,7 @@ const updateProfile = async (req, res) => {
     console.error("Update profile error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };

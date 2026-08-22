@@ -329,7 +329,7 @@ const createNews = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -375,7 +375,7 @@ const getNews = async (req, res) => {
     console.error("Get news error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -412,7 +412,7 @@ const getNewsById = async (req, res) => {
     console.error("Get news by id error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -566,7 +566,7 @@ const updateNews = async (req, res) => {
     console.error("Update news error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -596,7 +596,7 @@ const deleteNews = async (req, res) => {
     console.error("Delete news error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -638,7 +638,7 @@ const reorderNews = async (req, res) => {
     });
   } catch (error) {
     console.error("Reorder news error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -670,7 +670,7 @@ const togglePinNews = async (req, res) => {
     });
   } catch (error) {
     console.error("Toggle pin news error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -703,14 +703,24 @@ const toggleActiveNews = async (req, res) => {
       };
     }
 
+    let notificationResult = null;
+    if (news.isActive) {
+      try {
+        notificationResult = await sendNewsNotificationToGuests(populatedNews);
+      } catch (notificationError) {
+        console.error("Toggle news notification error:", notificationError);
+      }
+    }
+
     return res.json({
       success: true,
       message: `News ${news.isActive ? "turned on" : "turned off"} successfully`,
       data: obj,
+      notification: notificationResult,
     });
   } catch (error) {
     console.error("Toggle active news error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -767,7 +777,7 @@ const getNewsAnalytics = async (req, res) => {
     });
   } catch (error) {
     console.error("Get news analytics error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -1231,7 +1241,7 @@ const getAnalyticsDashboard = async (req, res) => {
     });
   } catch (error) {
     console.error("Get analytics dashboard error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -1328,7 +1338,7 @@ const trackNewsInteraction = async (req, res) => {
     });
   } catch (error) {
     console.error("Track news interaction error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 

@@ -68,7 +68,7 @@ const createAdvertisement = async (req, res) => {
     });
   } catch (error) {
     console.error("Create advertisement error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -103,7 +103,7 @@ const getAdvertisements = async (req, res) => {
     return res.json({ success: true, data: advertisements });
   } catch (error) {
     console.error("Get advertisements error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -117,7 +117,7 @@ const getAdvertisementById = async (req, res) => {
     return res.json({ success: true, data: advertisement });
   } catch (error) {
     console.error("Get advertisement by id error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -156,7 +156,7 @@ const updateAdvertisement = async (req, res) => {
     });
   } catch (error) {
     console.error("Update advertisement error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -172,7 +172,7 @@ const deleteAdvertisement = async (req, res) => {
     return res.json({ success: true, message: "Advertisement deleted successfully" });
   } catch (error) {
     console.error("Delete advertisement error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -194,7 +194,7 @@ const toggleAdvertisement = async (req, res) => {
     });
   } catch (error) {
     console.error("Toggle advertisement error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -228,7 +228,7 @@ const trackAdInteraction = async (req, res) => {
     });
   } catch (error) {
     console.error("Track advertisement interaction error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
