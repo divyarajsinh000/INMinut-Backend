@@ -9,6 +9,7 @@ const {
 const { auth, authorize } = require("../middlewares/auth");
 const {
   guestLimiter,
+  accountCreationLimiter,
   adminLimiter,
 } = require("../middlewares/security");
 
@@ -116,6 +117,7 @@ router.delete(
 
 router.post(
   "/",
+  accountCreationLimiter,
   guestLimiter,
   registerGuestUser
 );
