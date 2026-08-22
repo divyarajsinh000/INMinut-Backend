@@ -21,6 +21,7 @@ const settingRoutes = require("./routes/settingRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const { securityMiddleware, apiLimiter } = require("./middlewares/security");
 const { botProtection, honeypotTrap } = require("./middlewares/botProtection");
+const { sanitizeInputMiddleware } = require("./middlewares/validateInput");
 
 const app = express();
 
@@ -79,6 +80,7 @@ app.options(/.*/, cors(corsOptions));
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.use(sanitizeInputMiddleware);
 
 // Honeypot bait routes to trap automated scanners
 app.use(["/api/admin/setup-root", "/api/v1/debug", "/.env", "/wp-login.php", "/admin/config"], honeypotTrap);

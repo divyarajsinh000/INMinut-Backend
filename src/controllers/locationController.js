@@ -1,8 +1,9 @@
 const Country = require("../models/Country");
 const State = require("../models/State");
 const City = require("../models/City");
+const { sanitizeString, isValidObjectId } = require("../utils/sanitizer");
 
-const normalizeName = (value = "") => String(value).trim();
+const normalizeName = (value = "") => sanitizeString(String(value)).trim();
 
 const createCountry = async (req, res) => {
   try {

@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const { deleteFromS3 } = require("../utils/s3");
 const { sendNewsNotificationToGuests } = require("../services/notificationService");
+const { escapeRegExp, isValidObjectId, sanitizeString, sanitizeUrl } = require("../utils/sanitizer");
 
 const isRemoteUrl = (value = "") =>
   /^https?:\/\//i.test(String(value));
@@ -193,12 +194,12 @@ const buildNewsQuery = ({ category, search, cityIds, city, includeInactive, admi
   }
   const andConditions = [];
 
-  if (category) {
+  if (category && isValidObjectId(category)) {
     query.category = category;
   }
 
   if (search && String(search).trim()) {
-    const keyword = String(search).trim();
+    const keyword = escapeRegExp(String(search).trim());
     andConditions.push({
       $or: [
         { title: { $regex: keyword, $options: "i" } },
@@ -210,7 +211,7 @@ const buildNewsQuery = ({ category, search, cityIds, city, includeInactive, admi
     });
   }
 
-  const selectedCities = parseArrayField(cityIds || city);
+  const selectedCities = parseArrayField(cityIds || city).filter((id) => isValidObjectId(id));
   if (selectedCities.length > 0) {
     andConditions.push({
       $or: [{ cities: { $in: selectedCities } }, { cities: { $size: 0 } }],
@@ -848,7 +849,7 @@ const getAnalyticsDashboard = async (req, res) => {
     if (pinned === "yes") newsMatch.isPinned = true;
     if (pinned === "no") newsMatch.isPinned = { $ne: true };
     if (String(search).trim()) {
-      const keyword = String(search).trim();
+      const keyword = escapeRegExp(String(search).trim());
       newsMatch.$or = [
         { title: { $regex: keyword, $options: "i" } },
         { description: { $regex: keyword, $options: "i" } },

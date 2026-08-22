@@ -49,6 +49,22 @@ const validateEnv = () => {
     errors.push(`Invalid PORT number: "${port}".`);
   }
 
+  // 4. Validate Firebase Admin Credentials (if present)
+  const firebaseKey = process.env.FIREBASE_PRIVATE_KEY;
+  if (firebaseKey) {
+    if (firebaseKey.includes("YOUR_PRIVATE_KEY_HERE") || firebaseKey.includes("paste-your-private-key-here")) {
+      warnings.push("FIREBASE_PRIVATE_KEY is set to a placeholder template.");
+    } else if (!firebaseKey.includes("BEGIN PRIVATE KEY")) {
+      warnings.push("FIREBASE_PRIVATE_KEY does not contain a standard RSA BEGIN PRIVATE KEY header.");
+    }
+  }
+
+  // 5. Validate AWS Credentials placeholders
+  const awsSecret = process.env.AWS_SECRET_ACCESS_KEY;
+  if (awsSecret && (awsSecret === "dummy-secret" || awsSecret.includes("your-aws-secret"))) {
+    warnings.push("AWS_SECRET_ACCESS_KEY is set to a dummy placeholder.");
+  }
+
   // Output warnings if any
   warnings.forEach((warn) => {
     logger.info(`[ENV WARNING] ${warn}`);

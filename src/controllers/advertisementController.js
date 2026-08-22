@@ -1,5 +1,6 @@
 const Advertisement = require("../models/Advertisement");
 const { deleteFromS3 } = require("../utils/s3");
+const { sanitizeString, sanitizeUrl, isValidObjectId } = require("../utils/sanitizer");
 
 const parseBoolean = (value) => {
   if (typeof value === "boolean") return value;
@@ -9,26 +10,19 @@ const parseBoolean = (value) => {
 
 const parseArrayField = (value, fallback = []) => {
   if (value === undefined || value === null || value === "") return fallback;
-  if (Array.isArray(value)) return value.filter(Boolean);
+  if (Array.isArray(value)) return value.filter((id) => Boolean(id) && isValidObjectId(id));
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : fallback;
+      return Array.isArray(parsed) ? parsed.filter((id) => Boolean(id) && isValidObjectId(id)) : fallback;
     } catch (_) {
       return value
         .split(",")
         .map((item) => item.trim())
-        .filter(Boolean);
+        .filter((id) => Boolean(id) && isValidObjectId(id));
     }
   }
   return fallback;
-};
-
-const normalizeUrl = (url) => {
-  if (!url) return url;
-  const trimmed = url.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
 };
 
 const getImageUrlFromRequest = (req) => {
@@ -41,18 +35,20 @@ const createAdvertisement = async (req, res) => {
     const { name, label, redirectUrl, positionAfterNews, isEnabled, cities, categories } = req.body;
     const bannerImage = getImageUrlFromRequest(req);
 
-    if (!name || !redirectUrl || !bannerImage) {
+    const safeRedirectUrl = sanitizeUrl(redirectUrl);
+
+    if (!name || !safeRedirectUrl || !bannerImage) {
       return res.status(400).json({
         success: false,
-        message: "Name, redirect URL and banner image are required",
+        message: "Name, valid redirect URL (http/https), and banner image are required",
       });
     }
 
     const advertisement = await Advertisement.create({
-      name,
-      label: label || "Advertisement",
+      name: sanitizeString(name),
+      label: sanitizeString(label) || "Advertisement",
       bannerImage,
-      redirectUrl: normalizeUrl(redirectUrl),
+      redirectUrl: safeRedirectUrl,
       cities: parseArrayField(cities),
       categories: parseArrayField(categories),
       positionAfterNews: (positionAfterNews !== undefined && positionAfterNews !== "") ? Number(positionAfterNews) : 4,

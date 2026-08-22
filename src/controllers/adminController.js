@@ -4,8 +4,14 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const { sendVerificationEmail, sendPasswordResetEmail } = require("../services/emailService");
 const logger = require("../utils/logger");
+const { sanitizeString } = require("../utils/sanitizer");
 
 const ADMIN_ROLES = ["super-admin", "editor", "reporter"];
+
+const isValidEmail = (email) => {
+  if (!email || typeof email !== "string") return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+};
 
 const validatePasswordComplexity = (password) => {
   if (!password || typeof password !== "string") return false;
@@ -43,6 +49,14 @@ const registerAdmin = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "All fields are required",
+      });
+    }
+
+    if (!isValidEmail(email)) {
+      logger.logAuthFailure(req, "Registration invalid email format", { email });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email address format",
       });
     }
 
@@ -127,6 +141,14 @@ const loginAdmin = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Email and password are required",
+      });
+    }
+
+    if (!isValidEmail(email)) {
+      logger.logAuthFailure(req, "Login invalid email format", { email });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email address format",
       });
     }
 
