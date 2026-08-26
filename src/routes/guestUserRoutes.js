@@ -11,6 +11,7 @@ const {
   guestLimiter,
   adminLimiter,
 } = require("../middlewares/security");
+const { validateObjectIds } = require("../middlewares/validateInput");
 
 const router = express.Router();
 
@@ -82,6 +83,7 @@ router.patch(
   "/:id/devices/:deviceIdentifier/notifications",
   auth,
   authorize("super-admin", "editor"),
+  validateObjectIds("id"),
   adminLimiter,
   updateDeviceNotificationsByAdmin
 );
@@ -104,6 +106,7 @@ router.delete(
   "/:id",
   auth,
   authorize("super-admin"),
+  validateObjectIds("id"),
   adminLimiter,
   deleteGuestUser
 );

@@ -1,17 +1,19 @@
 const Category = require("../models/Category");
+const { sanitizeString, isValidObjectId } = require("../utils/sanitizer");
 
 const createCategory = async (req, res) => {
   try {
     const { name, backgroundColor, textColor, isHighlighted } = req.body;
 
-    if (!name) {
+    const cleanName = sanitizeString(name);
+    if (!cleanName) {
       return res.status(400).json({
         success: false,
         message: "Category name is required",
       });
     }
 
-    const existingCategory = await Category.findOne({ name });
+    const existingCategory = await Category.findOne({ name: cleanName });
     if (existingCategory) {
       return res.status(400).json({
         success: false,
@@ -20,9 +22,9 @@ const createCategory = async (req, res) => {
     }
 
     const category = await Category.create({
-      name,
-      backgroundColor,
-      textColor,
+      name: cleanName,
+      backgroundColor: sanitizeString(backgroundColor) || "#000000",
+      textColor: sanitizeString(textColor) || "#FFFFFF",
       isHighlighted: Boolean(isHighlighted),
     });
 
@@ -35,7 +37,7 @@ const createCategory = async (req, res) => {
     console.error("Create category error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -51,7 +53,7 @@ const getCategories = async (req, res) => {
     console.error("Get categories error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -61,12 +63,11 @@ const updateCategory = async (req, res) => {
     const { id } = req.params;
     const { name, backgroundColor, textColor, isHighlighted } = req.body;
 
-    const updates = {
-      name,
-      backgroundColor,
-      textColor,
-      ...(typeof isHighlighted === "boolean" ? { isHighlighted } : {}),
-    };
+    const updates = {};
+    if (name !== undefined) updates.name = sanitizeString(name);
+    if (backgroundColor !== undefined) updates.backgroundColor = sanitizeString(backgroundColor);
+    if (textColor !== undefined) updates.textColor = sanitizeString(textColor);
+    if (typeof isHighlighted === "boolean") updates.isHighlighted = isHighlighted;
 
     const category = await Category.findByIdAndUpdate(
       id,
@@ -90,7 +91,7 @@ const updateCategory = async (req, res) => {
     console.error("Update category error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -116,7 +117,7 @@ const deleteCategory = async (req, res) => {
     console.error("Delete category error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: error.message || "Internal server error",
     });
   }
 };
@@ -128,7 +129,9 @@ const reorderCategories = async (req, res) => {
       return res.status(400).json({ success: false, message: "orderedIds must be an array" });
     }
 
-    const bulkOps = orderedIds.map((id, index) => ({
+    const validOrderedIds = orderedIds.filter((id) => isValidObjectId(id));
+
+    const bulkOps = validOrderedIds.map((id, index) => ({
       updateOne: {
         filter: { _id: id },
         update: { $set: { sequence: index } },
@@ -142,7 +145,7 @@ const reorderCategories = async (req, res) => {
     return res.json({ success: true, message: "Categories reordered successfully" });
   } catch (error) {
     console.error("Reorder categories error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 

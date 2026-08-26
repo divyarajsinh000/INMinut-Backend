@@ -1,4 +1,5 @@
 const Embed = require("../models/Embed");
+const { sanitizeString, isValidObjectId } = require("../utils/sanitizer");
 
 const parseBoolean = (value) => {
   if (typeof value === "boolean") return value;
@@ -8,16 +9,16 @@ const parseBoolean = (value) => {
 
 const parseArrayField = (value, fallback = []) => {
   if (value === undefined || value === null || value === "") return fallback;
-  if (Array.isArray(value)) return value.filter(Boolean);
+  if (Array.isArray(value)) return value.filter((id) => Boolean(id) && isValidObjectId(id));
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : fallback;
+      return Array.isArray(parsed) ? parsed.filter((id) => Boolean(id) && isValidObjectId(id)) : fallback;
     } catch (_) {
       return value
         .split(",")
         .map((item) => item.trim())
-        .filter(Boolean);
+        .filter((id) => Boolean(id) && isValidObjectId(id));
     }
   }
   return fallback;
@@ -34,11 +35,21 @@ const createEmbed = async (req, res) => {
       });
     }
 
+    const numericHeight = Number(height);
+    const numericPosition = Number(positionAfterNews);
+
+    if (Number.isNaN(numericHeight) || Number.isNaN(numericPosition)) {
+      return res.status(400).json({
+        success: false,
+        message: "Height and positionAfterNews must be valid numbers",
+      });
+    }
+
     const embed = await Embed.create({
-      title,
-      embedCode,
-      height: Number(height),
-      positionAfterNews: Number(positionAfterNews),
+      title: sanitizeString(title),
+      embedCode: sanitizeString(embedCode),
+      height: numericHeight,
+      positionAfterNews: numericPosition,
       isEnabled: isEnabled === undefined ? true : parseBoolean(isEnabled),
       categories: parseArrayField(categories),
     });
@@ -52,7 +63,7 @@ const createEmbed = async (req, res) => {
     });
   } catch (error) {
     console.error("Create embed error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -74,7 +85,7 @@ const getEmbeds = async (req, res) => {
     return res.json({ success: true, data: embeds });
   } catch (error) {
     console.error("Get embeds error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -88,7 +99,7 @@ const getEmbedById = async (req, res) => {
     return res.json({ success: true, data: embed });
   } catch (error) {
     console.error("Get embed by id error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -118,7 +129,7 @@ const updateEmbed = async (req, res) => {
     });
   } catch (error) {
     console.error("Update embed error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -132,7 +143,7 @@ const deleteEmbed = async (req, res) => {
     return res.json({ success: true, message: "Embed deleted successfully" });
   } catch (error) {
     console.error("Delete embed error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -154,7 +165,7 @@ const toggleEmbed = async (req, res) => {
     });
   } catch (error) {
     console.error("Toggle embed error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -188,7 +199,7 @@ const trackEmbedInteraction = async (req, res) => {
     });
   } catch (error) {
     console.error("Track embed interaction error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 

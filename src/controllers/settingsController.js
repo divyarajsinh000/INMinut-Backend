@@ -9,7 +9,7 @@ const getSettings = async (req, res) => {
     return res.json({ success: true, settings });
   } catch (error) {
     console.error("Get settings error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -31,7 +31,7 @@ const updateSettings = async (req, res) => {
     return res.json({ success: true, message: "Settings updated successfully", settings });
   } catch (error) {
     console.error("Update settings error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 

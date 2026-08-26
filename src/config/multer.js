@@ -3,6 +3,7 @@ const multerS3 = require("multer-s3");
 const path = require("path");
 const fs = require("fs");
 const { S3Client } = require("@aws-sdk/client-s3");
+const { sanitizeFilename } = require("../utils/sanitizer");
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 const AWS_REGION = process.env.AWS_REGION;
@@ -69,7 +70,43 @@ const IMAGE_EXTENSIONS = new Set([
 const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".ogg", ".mov", ".m4v"]);
 const PDF_EXTENSIONS = new Set([".pdf"]);
 
+const DANGEROUS_EXTENSIONS = new Set([
+  ".php",
+  ".php3",
+  ".php4",
+  ".php5",
+  ".phtml",
+  ".exe",
+  ".bat",
+  ".sh",
+  ".cmd",
+  ".js",
+  ".html",
+  ".htm",
+  ".svg",
+  ".jar",
+  ".vbs",
+  ".cgi",
+  ".pl",
+  ".py",
+]);
+
+/**
+ * Checks if the filename contains dangerous secondary extensions (e.g. file.php.png).
+ */
+const hasDangerousExtension = (filename = "") => {
+  const parts = filename.toLowerCase().split(".");
+  if (parts.length <= 2) return false;
+  for (let i = 1; i < parts.length - 1; i++) {
+    if (DANGEROUS_EXTENSIONS.has(`.${parts[i]}`)) {
+      return true;
+    }
+  }
+  return false;
+};
+
 const getUploadType = (file) => {
+  if (!file) return null;
   const ext = path.extname(file.originalname || "").toLowerCase();
   const mime = file.mimetype;
 
@@ -98,6 +135,8 @@ const fileFilter = (req, file, cb) => {
       "Only image files (jpg, jpeg, png, gif, webp, avif, heic), videos (mp4, webm, ogg, mov, m4v), and PDFs are allowed."
     )
   );
+  err.status = 400;
+  return cb(err);
 };
 
 const createUniqueFileName = (file) => {

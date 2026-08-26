@@ -1,5 +1,21 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Environment Variables & Secrets
 .env
-.DS_Store
+.env.*
+!.env.example
+
+# Key files & credentials
+*.pem
+*.key
+*.jks
+credentials.json
+google-services.json
+
+# Build & Logs
+logs/
+uploads/
 npm-debug.log
 yarn-error.log
+.DS_Store

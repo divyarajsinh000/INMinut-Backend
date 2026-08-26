@@ -118,16 +118,23 @@ const removeInvalidExpoTokens = async (tokens = [], tickets = []) => {
 
 const stripHtml = (html) => (html || "").replace(/<[^>]*>?/gm, "").replace(/&nbsp;/g, " ").trim();
 
-const buildNotificationPayload = (news, newsCityIds) => ({
-  title: news.isBreaking ? `Breaking: ${news.title}` : news.title,
-  body: stripHtml(news.description) || "New news update is available.",
-  data: {
-    type: "news",
-    newsId: String(news._id),
-    categoryId: String(news.category?._id || news.category || ""),
-    cityIds: newsCityIds.join(","),
-  },
-});
+const buildNotificationPayload = (news, newsCityIds) => {
+  let titleText = news.title?.trim();
+  if (!titleText) {
+    const plainDesc = stripHtml(news.description) || "New news update is available.";
+    titleText = plainDesc.split('\n')[0].trim();
+  }
+
+  return {
+    title: news.isBreaking ? `Breaking: ${titleText}` : titleText,
+    data: {
+      type: "news",
+      newsId: String(news._id),
+      categoryId: String(news.category?._id || news.category || ""),
+      cityIds: newsCityIds.join(","),
+    },
+  };
+};
 
 const sendExpoPushNotifications = async (tokens, news, newsCityIds) => {
   const uniqueTokens = [...new Set(tokens.filter(isExpoPushToken))];
@@ -146,15 +153,18 @@ const sendExpoPushNotifications = async (tokens, news, newsCityIds) => {
   }
 
   for (const tokenChunk of chunkArray(uniqueTokens, 100)) {
-    const messages = tokenChunk.map((token) => ({
-      to: token,
-      sound: "default",
-      title: payload.title,
-      body: payload.body,
-      data: payload.data,
-      channelId: "breaking_news",
-      priority: "high",
-    }));
+    const messages = tokenChunk.map((token) => {
+      const msg = {
+        to: token,
+        sound: "default",
+        title: payload.title,
+        data: payload.data,
+        channelId: "breaking_news",
+        priority: "high",
+      };
+      if (payload.body) msg.body = payload.body;
+      return msg;
+    });
 
     const response = await postJson(EXPO_PUSH_URL, messages, headers);
     const tickets = Array.isArray(response?.data)
@@ -195,12 +205,12 @@ const sendFcmNotifications = async (tokens, news, newsCityIds) => {
   const payload = buildNotificationPayload(news, newsCityIds);
 
   for (const tokenChunk of chunkArray(uniqueTokens, 500)) {
+    const notificationData = { title: payload.title };
+    if (payload.body) notificationData.body = payload.body;
+
     const response = await firebaseAdmin.messaging().sendEachForMulticast({
       tokens: tokenChunk,
-      notification: {
-        title: payload.title,
-        body: payload.body,
-      },
+      notification: notificationData,
       data: payload.data,
       android: {
         priority: "high",

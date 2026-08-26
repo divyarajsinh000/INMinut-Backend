@@ -1,8 +1,9 @@
 const Country = require("../models/Country");
 const State = require("../models/State");
 const City = require("../models/City");
+const { sanitizeString, isValidObjectId } = require("../utils/sanitizer");
 
-const normalizeName = (value = "") => String(value).trim();
+const normalizeName = (value = "") => sanitizeString(String(value)).trim();
 
 const createCountry = async (req, res) => {
   try {
@@ -14,7 +15,7 @@ const createCountry = async (req, res) => {
   } catch (error) {
     if (error.code === 11000) return res.status(400).json({ success: false, message: "Country already exists" });
     console.error("Create country error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -25,7 +26,7 @@ const getCountries = async (req, res) => {
     return res.json({ success: true, data: countries });
   } catch (error) {
     console.error("Get countries error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -40,7 +41,7 @@ const updateCountry = async (req, res) => {
     return res.json({ success: true, message: "Country updated", data: country });
   } catch (error) {
     console.error("Update country error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -53,7 +54,7 @@ const deleteCountry = async (req, res) => {
     return res.json({ success: true, message: "Country deleted" });
   } catch (error) {
     console.error("Delete country error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -68,7 +69,7 @@ const createState = async (req, res) => {
   } catch (error) {
     if (error.code === 11000) return res.status(400).json({ success: false, message: "State already exists in this country" });
     console.error("Create state error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -80,7 +81,7 @@ const getStates = async (req, res) => {
     return res.json({ success: true, data: states });
   } catch (error) {
     console.error("Get states error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -95,7 +96,7 @@ const updateState = async (req, res) => {
     return res.json({ success: true, message: "State updated", data: state });
   } catch (error) {
     console.error("Update state error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -108,7 +109,7 @@ const deleteState = async (req, res) => {
     return res.json({ success: true, message: "State deleted" });
   } catch (error) {
     console.error("Delete state error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -123,7 +124,7 @@ const createCity = async (req, res) => {
   } catch (error) {
     if (error.code === 11000) return res.status(400).json({ success: false, message: "City already exists in this state" });
     console.error("Create city error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -136,7 +137,7 @@ const getCities = async (req, res) => {
     return res.json({ success: true, data: cities });
   } catch (error) {
     console.error("Get cities error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -152,7 +153,7 @@ const updateCity = async (req, res) => {
     return res.json({ success: true, message: "City updated", data: city });
   } catch (error) {
     console.error("Update city error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -163,7 +164,7 @@ const deleteCity = async (req, res) => {
     return res.json({ success: true, message: "City deleted" });
   } catch (error) {
     console.error("Delete city error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -178,7 +179,7 @@ const reorderCountries = async (req, res) => {
     return res.json({ success: true, message: "Countries reordered successfully" });
   } catch (error) {
     console.error("Reorder countries error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -193,7 +194,7 @@ const reorderStates = async (req, res) => {
     return res.json({ success: true, message: "States reordered successfully" });
   } catch (error) {
     console.error("Reorder states error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -208,7 +209,7 @@ const reorderCities = async (req, res) => {
     return res.json({ success: true, message: "Cities reordered successfully" });
   } catch (error) {
     console.error("Reorder cities error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 

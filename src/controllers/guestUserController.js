@@ -189,7 +189,7 @@ const registerGuestUser = async (req, res) => {
       });
     }
 
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -230,7 +230,7 @@ const updateGuestNotificationPreference = async (req, res) => {
     });
   } catch (error) {
     console.error("Update guest preference error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -240,7 +240,7 @@ const getGuestUsers = async (req, res) => {
     return res.json({ success: true, data: users });
   } catch (error) {
     console.error("Get guest users error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
@@ -256,7 +256,7 @@ const deleteGuestUser = async (req, res) => {
     return res.json({ success: true, message: "Guest user deleted" });
   } catch (error) {
     console.error("Delete guest user error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };
 
