@@ -441,6 +441,7 @@ const updateNews = async (req, res) => {
       publishedDate,
       cities,
       mediaToKeep,
+      sendNotification,
     } = req.body;
 
     // Find existing news
@@ -533,9 +534,22 @@ const updateNews = async (req, res) => {
       };
     }
 
+    // This flag controls notifications only for this edit request.
+    // Default true keeps older admin clients working exactly as before.
+    const shouldSendNotification =
+      sendNotification === undefined ? true : parseBoolean(sendNotification);
+
     let notificationResult = null;
     try {
-      if (news.isActive === false) {
+      if (!shouldSendNotification) {
+        notificationResult = {
+          success: true,
+          sent: 0,
+          failed: 0,
+          skipped: true,
+          reason: "Notification disabled for this edit",
+        };
+      } else if (news.isActive === false) {
         notificationResult = {
           success: true,
           sent: 0,
