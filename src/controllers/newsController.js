@@ -213,8 +213,11 @@ const buildNewsQuery = ({ category, search, cityIds, city, includeInactive, admi
 
   const selectedCities = parseArrayField(cityIds || city).filter((id) => isValidObjectId(id));
   if (selectedCities.length > 0) {
+    // Strict city filtering: when the app user selects one or more cities,
+    // return news assigned to ANY of those selected cities only.
+    // General/all-city news (cities: []) is shown only when no city filter is selected.
     andConditions.push({
-      $or: [{ cities: { $in: selectedCities } }, { cities: { $size: 0 } }],
+      cities: { $in: selectedCities },
     });
   }
 
