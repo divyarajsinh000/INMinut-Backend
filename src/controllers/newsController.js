@@ -2,11 +2,29 @@ const News = require("../models/News");
 const Admin = require("../models/Admin");
 const NewsInteraction = require("../models/NewsInteraction");
 const GuestUser = require("../models/GuestUser");
+const Setting = require("../models/Setting");
 const path = require("path");
 const fs = require("fs");
 const { deleteFromS3 } = require("../utils/s3");
 const { sendNewsNotificationToGuests } = require("../services/notificationService");
 const { escapeRegExp, isValidObjectId, sanitizeString, sanitizeUrl } = require("../utils/sanitizer");
+
+const normalizeSettingMediaUrl = (urlStr) => {
+  if (!urlStr || typeof urlStr !== "string") return "";
+  const trimmed = urlStr.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("/uploads/")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("uploads/")) {
+    return `/${trimmed}`;
+  }
+  const cleanPath = trimmed.replace(/^\/+/, "");
+  return `/uploads/images/${cleanPath}`;
+};
 
 const isRemoteUrl = (value = "") =>
   /^https?:\/\//i.test(String(value));
@@ -184,6 +202,7 @@ const getSortField = (sortBy, fallback = "createdAt") => {
 
 const buildNewsQuery = async ({
   category,
+  categories,
   search,
   cityIds,
   city,
@@ -207,8 +226,14 @@ const buildNewsQuery = async ({
   }
   const andConditions = [];
 
-  if (category && isValidObjectId(category)) {
-    query.category = category;
+  const selectedCategories = parseArrayField(category || categories).filter((id) => isValidObjectId(id));
+  if (selectedCategories.length > 0) {
+    andConditions.push({
+      $or: [
+        { category: { $in: selectedCategories } },
+        { categories: { $in: selectedCategories } },
+      ],
+    });
   }
 
   // Admin filter: creator admin ID
@@ -325,6 +350,7 @@ const createNews = async (req, res) => {
       descriptionFontSize,
       content,
       category,
+      categories,
       reporter,
       hashtags,
       isBreaking,
@@ -350,7 +376,37 @@ const createNews = async (req, res) => {
     }
 
     // Supports both multer-s3 in production and diskStorage locally.
-    const media = mapUploadedFilesToMedia(req.files || []);
+    let media = mapUploadedFilesToMedia(req.files || []);
+
+    if (media.length === 0) {
+      const defaultImageUrl = req.body.defaultNewsImageUrl;
+      if (defaultImageUrl) {
+        media = [
+          {
+            url: normalizeSettingMediaUrl(defaultImageUrl),
+            type: "image",
+            originalName: "default_news_image.jpg",
+          },
+        ];
+      } else {
+        const setting = await Setting.findOne();
+        if (setting && setting.defaultNewsImage) {
+          media = [
+            {
+              url: normalizeSettingMediaUrl(setting.defaultNewsImage),
+              type: "image",
+              originalName: "default_news_image.jpg",
+            },
+          ];
+        }
+      }
+    }
+
+    const parsedCategories = parseArrayField(categories).filter((id) => isValidObjectId(id));
+    const primaryCategory = parsedCategories[0] || (category && isValidObjectId(category) ? category : null);
+    if (primaryCategory && !parsedCategories.includes(primaryCategory)) {
+      parsedCategories.unshift(primaryCategory);
+    }
 
     const news = await News.create({
       title,
@@ -361,7 +417,8 @@ const createNews = async (req, res) => {
       descriptionFontSize: parseNumberField(descriptionFontSize, 16, 10, 40),
       content,
       media,
-      category: category === "" || category === "null" ? null : category,
+      category: primaryCategory,
+      categories: parsedCategories,
       cities: parseArrayField(cities),
       reporter: {
         name: req.admin?.name || "",
@@ -380,7 +437,7 @@ const createNews = async (req, res) => {
       publishedDate,
     });
 
-    const populatedNews = await News.findById(news._id).populate("category").populate("cities");
+    const populatedNews = await News.findById(news._id).populate("category").populate("categories").populate("cities");
 
     const shouldSendNotification =
       sendNotification === undefined ? true : parseBoolean(sendNotification);
@@ -438,9 +495,9 @@ const createNews = async (req, res) => {
 
 const getNews = async (req, res) => {
   try {
-    const { category, search, adminId, createdBy, date, startDate, endDate, cityIds, city, sortBy, onlyWithMetric, includeInactive, page, limit } = req.query;
+    const { category, categories, search, adminId, createdBy, date, startDate, endDate, cityIds, city, sortBy, onlyWithMetric, includeInactive, page, limit } = req.query;
     const showInactive = parseBoolean(includeInactive) && Boolean(req.admin);
-    const query = await buildNewsQuery({ category, search, adminId, createdBy, date, startDate, endDate, cityIds, city, includeInactive: showInactive, admin: req.admin });
+    const query = await buildNewsQuery({ category, categories, search, adminId, createdBy, date, startDate, endDate, cityIds, city, includeInactive: showInactive, admin: req.admin });
     const sortField = getSortField(sortBy, "manual");
 
     if (parseBoolean(onlyWithMetric) && METRIC_FIELDS.includes(sortField)) {
@@ -458,6 +515,7 @@ const getNews = async (req, res) => {
 
     let newsQuery = News.find(query)
       .populate("category")
+      .populate("categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage")
       .sort(sortOptions);
@@ -511,6 +569,7 @@ const getNewsById = async (req, res) => {
 
     const news = await News.findById(id)
       .populate("category")
+      .populate("categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage");
 
@@ -554,6 +613,7 @@ const updateNews = async (req, res) => {
       descriptionFontSize,
       content,
       category,
+      categories,
       reporter,
       hashtags,
       isBreaking,
@@ -625,6 +685,15 @@ const updateNews = async (req, res) => {
       ...mapUploadedFilesToMedia(req.files || []),
     ];
 
+    const parsedCategories = categories !== undefined
+      ? parseArrayField(categories).filter((id) => isValidObjectId(id))
+      : (existingNews.categories?.map(c => typeof c === 'string' ? c : c?._id).filter(Boolean) || []);
+
+    let primaryCategory = parsedCategories[0] || (category && isValidObjectId(category) ? category : (category === "" || category === "null" ? null : (typeof existingNews.category === 'string' ? existingNews.category : existingNews.category?._id)));
+    if (primaryCategory && !parsedCategories.includes(primaryCategory)) {
+      parsedCategories.unshift(primaryCategory);
+    }
+
     const news = await News.findByIdAndUpdate(
       id,
       {
@@ -636,7 +705,8 @@ const updateNews = async (req, res) => {
         descriptionFontSize: parseNumberField(descriptionFontSize, existingNews.descriptionFontSize || 16, 10, 40),
         content,
         media: updatedMedia,
-        category: category === "" || category === "null" ? null : category,
+        category: primaryCategory,
+        categories: parsedCategories,
         cities: parseArrayField(cities, existingNews.cities),
         hashtags: hashtags === undefined ? existingNews.hashtags : parseArrayField(hashtags),
         isBreaking: parseBoolean(isBreaking),
@@ -649,7 +719,7 @@ const updateNews = async (req, res) => {
         publishedDate,
       },
       { new: true }
-    ).populate("category").populate("cities").populate("createdBy", "name email role profileImage");
+    ).populate("category").populate("categories").populate("cities").populate("createdBy", "name email role profileImage");
 
     const obj = news.toObject();
     if (obj.createdBy) {
@@ -767,6 +837,7 @@ const reorderNews = async (req, res) => {
 
     const news = await News.find({ _id: { $in: orderedIds } })
       .populate("category")
+      .populate("categories")
       .populate("cities")
       .sort({ isPinned: -1, pinOrder: 1, sortOrder: 1, publishedDate: -1, createdAt: -1 });
 
@@ -800,7 +871,7 @@ const togglePinNews = async (req, res) => {
     }
 
     await news.save();
-    const populatedNews = await News.findById(news._id).populate("category").populate("cities");
+    const populatedNews = await News.findById(news._id).populate("category").populate("categories").populate("cities");
 
     return res.json({
       success: true,
@@ -831,6 +902,7 @@ const toggleActiveNews = async (req, res) => {
 
     const populatedNews = await News.findById(news._id)
       .populate("category")
+      .populate("categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage");
 
