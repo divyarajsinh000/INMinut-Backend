@@ -3,7 +3,7 @@ const { sanitizeString, isValidObjectId } = require("../utils/sanitizer");
 
 const createCategory = async (req, res) => {
   try {
-    const { name, backgroundColor, textColor, isHighlighted } = req.body;
+    const { name, backgroundColor, textColor, isHighlighted, isVisible } = req.body;
 
     const cleanName = sanitizeString(name);
     if (!cleanName) {
@@ -26,6 +26,7 @@ const createCategory = async (req, res) => {
       backgroundColor: sanitizeString(backgroundColor) || "#000000",
       textColor: sanitizeString(textColor) || "#FFFFFF",
       isHighlighted: Boolean(isHighlighted),
+      isVisible: isVisible !== undefined ? Boolean(isVisible) : true,
     });
 
     return res.status(201).json({
@@ -44,7 +45,9 @@ const createCategory = async (req, res) => {
 
 const getCategories = async (req, res) => {
   try {
-    const categories = await Category.find().sort({ sequence: 1, createdAt: -1 });
+    const { includeHidden } = req.query;
+    const query = includeHidden === "true" ? {} : { isVisible: { $ne: false } };
+    const categories = await Category.find(query).sort({ sequence: 1, createdAt: -1 });
     return res.json({
       success: true,
       data: categories,
@@ -61,13 +64,14 @@ const getCategories = async (req, res) => {
 const updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, backgroundColor, textColor, isHighlighted } = req.body;
+    const { name, backgroundColor, textColor, isHighlighted, isVisible } = req.body;
 
     const updates = {};
     if (name !== undefined) updates.name = sanitizeString(name);
     if (backgroundColor !== undefined) updates.backgroundColor = sanitizeString(backgroundColor);
     if (textColor !== undefined) updates.textColor = sanitizeString(textColor);
     if (typeof isHighlighted === "boolean") updates.isHighlighted = isHighlighted;
+    if (typeof isVisible === "boolean") updates.isVisible = isVisible;
 
     const category = await Category.findByIdAndUpdate(
       id,

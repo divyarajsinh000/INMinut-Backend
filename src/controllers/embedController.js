@@ -1,5 +1,5 @@
 const Embed = require("../models/Embed");
-const { sanitizeString, isValidObjectId } = require("../utils/sanitizer");
+const { sanitizeString, isValidObjectId, escapeRegExp } = require("../utils/sanitizer");
 
 const parseBoolean = (value) => {
   if (typeof value === "boolean") return value;
@@ -69,11 +69,16 @@ const createEmbed = async (req, res) => {
 
 const getEmbeds = async (req, res) => {
   try {
-    const { enabledOnly } = req.query;
+    const { enabledOnly, search } = req.query;
     const query = {};
 
     if (enabledOnly === "true") {
       query.isEnabled = true;
+    }
+
+    if (search && String(search).trim()) {
+      const keyword = escapeRegExp(String(search).trim());
+      query.title = { $regex: keyword, $options: "i" };
     }
 
     const sortOptions = req.query.sort === "recent" 

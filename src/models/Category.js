@@ -24,6 +24,10 @@ const mongoose = require("mongoose");
       type: Boolean,
       default: false,
     },
+    isVisible: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,

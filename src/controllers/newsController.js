@@ -1,4 +1,5 @@
 const News = require("../models/News");
+const Admin = require("../models/Admin");
 const NewsInteraction = require("../models/NewsInteraction");
 const GuestUser = require("../models/GuestUser");
 const path = require("path");
@@ -181,7 +182,19 @@ const getSortField = (sortBy, fallback = "createdAt") => {
   return SORT_KEY_TO_FIELD[sortBy] || fallback;
 };
 
-const buildNewsQuery = ({ category, search, cityIds, city, includeInactive, admin } = {}) => {
+const buildNewsQuery = async ({
+  category,
+  search,
+  cityIds,
+  city,
+  includeInactive,
+  admin,
+  adminId,
+  createdBy,
+  date,
+  startDate,
+  endDate,
+} = {}) => {
   const query = {};
 
   if (!includeInactive) {
@@ -198,24 +211,97 @@ const buildNewsQuery = ({ category, search, cityIds, city, includeInactive, admi
     query.category = category;
   }
 
+  // Admin filter: creator admin ID
+  const targetAdminId = adminId || createdBy;
+  if (targetAdminId && isValidObjectId(targetAdminId)) {
+    andConditions.push({ createdBy: targetAdminId });
+  }
+
+  // Exact single date filter (publishedDate on specified date YYYY-MM-DD)
+  if (date && String(date).trim()) {
+    const parsedDate = new Date(String(date).trim());
+    if (!Number.isNaN(parsedDate.getTime())) {
+      const startOfDay = new Date(parsedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(parsedDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      andConditions.push({
+        publishedDate: { $gte: startOfDay, $lte: endOfDay },
+      });
+    }
+  }
+
+  // Date range filter (startDate and/or endDate)
+  if ((startDate && String(startDate).trim()) || (endDate && String(endDate).trim())) {
+    const dateRangeCond = {};
+    if (startDate && String(startDate).trim()) {
+      const sDate = new Date(String(startDate).trim());
+      if (!Number.isNaN(sDate.getTime())) {
+        sDate.setHours(0, 0, 0, 0);
+        dateRangeCond.$gte = sDate;
+      }
+    }
+    if (endDate && String(endDate).trim()) {
+      const eDate = new Date(String(endDate).trim());
+      if (!Number.isNaN(eDate.getTime())) {
+        eDate.setHours(23, 59, 59, 999);
+        dateRangeCond.$lte = eDate;
+      }
+    }
+    if (Object.keys(dateRangeCond).length > 0) {
+      andConditions.push({ publishedDate: dateRangeCond });
+    }
+  }
+
+  // Search keyword filter (matches title, description, content, hashtags, reporter name, admin user name/email, or date string)
   if (search && String(search).trim()) {
-    const keyword = escapeRegExp(String(search).trim());
-    andConditions.push({
-      $or: [
-        { title: { $regex: keyword, $options: "i" } },
-        { description: { $regex: keyword, $options: "i" } },
-        { content: { $regex: keyword, $options: "i" } },
-        { hashtags: { $regex: keyword, $options: "i" } },
-        { "reporter.name": { $regex: keyword, $options: "i" } },
-      ],
-    });
+    const rawSearch = String(search).trim();
+    const keyword = escapeRegExp(rawSearch);
+    const orConditions = [
+      { title: { $regex: keyword, $options: "i" } },
+      { description: { $regex: keyword, $options: "i" } },
+      { content: { $regex: keyword, $options: "i" } },
+      { hashtags: { $regex: keyword, $options: "i" } },
+      { "reporter.name": { $regex: keyword, $options: "i" } },
+    ];
+
+    // Check if matching Admin users exist for keyword
+    try {
+      const matchingAdmins = await Admin.find({
+        $or: [
+          { name: { $regex: keyword, $options: "i" } },
+          { email: { $regex: keyword, $options: "i" } },
+        ],
+      }).select("_id");
+
+      if (matchingAdmins.length > 0) {
+        orConditions.push({
+          createdBy: { $in: matchingAdmins.map((a) => a._id) },
+        });
+      }
+    } catch (_) {
+      // Ignore admin lookup failures
+    }
+
+    // Check if rawSearch is a date string like YYYY-MM-DD or DD/MM/YYYY
+    if (/^\d{4}-\d{2}-\d{2}$/.test(rawSearch) || /^\d{2}\/\d{2}\/\d{4}$/.test(rawSearch)) {
+      const d = new Date(rawSearch);
+      if (!Number.isNaN(d.getTime())) {
+        const sOfDay = new Date(d);
+        sOfDay.setHours(0, 0, 0, 0);
+        const eOfDay = new Date(d);
+        eOfDay.setHours(23, 59, 59, 999);
+        orConditions.push({
+          publishedDate: { $gte: sOfDay, $lte: eOfDay },
+        });
+      }
+    }
+
+    andConditions.push({ $or: orConditions });
   }
 
   const selectedCities = parseArrayField(cityIds || city).filter((id) => isValidObjectId(id));
   if (selectedCities.length > 0) {
-    // Strict city filtering: when the app user selects one or more cities,
-    // return news assigned to ANY of those selected cities only.
-    // General/all-city news (cities: []) is shown only when no city filter is selected.
     andConditions.push({
       cities: { $in: selectedCities },
     });
@@ -250,6 +336,7 @@ const createNews = async (req, res) => {
       isPinned,
       publishedDate,
       cities,
+      sendNotification,
     } = req.body;
 
     // Parse reporter from JSON string if needed
@@ -295,9 +382,20 @@ const createNews = async (req, res) => {
 
     const populatedNews = await News.findById(news._id).populate("category").populate("cities");
 
+    const shouldSendNotification =
+      sendNotification === undefined ? true : parseBoolean(sendNotification);
+
     let notificationResult = null;
     try {
-      if (populatedNews.isActive === false) {
+      if (!shouldSendNotification) {
+        notificationResult = {
+          success: true,
+          sent: 0,
+          failed: 0,
+          skipped: true,
+          reason: "Notification disabled for this creation",
+        };
+      } else if (populatedNews.isActive === false) {
         notificationResult = { success: true, sent: 0, failed: 0, skipped: true, reason: "News is off/hidden" };
       } else {
         notificationResult = await sendNewsNotificationToGuests(populatedNews);
@@ -340,9 +438,9 @@ const createNews = async (req, res) => {
 
 const getNews = async (req, res) => {
   try {
-    const { category, search, cityIds, city, sortBy, onlyWithMetric, includeInactive } = req.query;
+    const { category, search, adminId, createdBy, date, startDate, endDate, cityIds, city, sortBy, onlyWithMetric, includeInactive, page, limit } = req.query;
     const showInactive = parseBoolean(includeInactive) && Boolean(req.admin);
-    const query = buildNewsQuery({ category, search, cityIds, city, includeInactive: showInactive, admin: req.admin });
+    const query = await buildNewsQuery({ category, search, adminId, createdBy, date, startDate, endDate, cityIds, city, includeInactive: showInactive, admin: req.admin });
     const sortField = getSortField(sortBy, "manual");
 
     if (parseBoolean(onlyWithMetric) && METRIC_FIELDS.includes(sortField)) {
@@ -354,11 +452,28 @@ const getNews = async (req, res) => {
         ? { [sortField]: -1, publishedDate: -1, createdAt: -1 }
         : { isPinned: -1, pinOrder: 1, sortOrder: 1, publishedDate: -1, createdAt: -1 };
 
-    const news = await News.find(query)
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const usePagination = !isNaN(pageNum) && pageNum > 0 && !isNaN(limitNum) && limitNum > 0;
+
+    let newsQuery = News.find(query)
       .populate("category")
       .populate("cities")
       .populate("createdBy", "name email role profileImage")
       .sort(sortOptions);
+
+    let totalCount = 0;
+    let totalPages = 1;
+
+    if (usePagination) {
+      totalCount = await News.countDocuments(query);
+      totalPages = Math.max(1, Math.ceil(totalCount / limitNum));
+      newsQuery = newsQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
+    } else {
+      totalCount = await News.countDocuments(query);
+    }
+
+    const news = await newsQuery;
 
     const formattedNews = news.map(item => {
       const obj = item.toObject();
@@ -374,6 +489,12 @@ const getNews = async (req, res) => {
     return res.json({
       success: true,
       data: formattedNews,
+      pagination: {
+        total: totalCount,
+        page: usePagination ? pageNum : 1,
+        limit: usePagination ? limitNum : totalCount,
+        totalPages: usePagination ? totalPages : 1,
+      },
     });
   } catch (error) {
     console.error("Get news error:", error);
@@ -747,15 +868,21 @@ const getNewsAnalytics = async (req, res) => {
     const {
       sortBy = "shareCount",
       limit,
+      page,
       category,
       search,
+      adminId,
+      createdBy,
+      date,
+      startDate,
+      endDate,
       cityIds,
       city,
       onlyWithMetric = "false",
     } = req.query;
 
     const sortField = getSortField(sortBy, "shareCount");
-    const queryObject = buildNewsQuery({ category, search, cityIds, city, includeInactive: true, admin: req.admin });
+    const queryObject = await buildNewsQuery({ category, search, adminId, createdBy, date, startDate, endDate, cityIds, city, includeInactive: true, admin: req.admin });
 
     // Important for admin filters:
     // Most viewed/saved/shared should not show every news item.
@@ -764,13 +891,23 @@ const getNewsAnalytics = async (req, res) => {
       queryObject[sortField] = { $gt: 0 };
     }
 
-    const query = News.find(queryObject)
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const usePagination = !isNaN(pageNum) && pageNum > 0 && !isNaN(limitNum) && limitNum > 0;
+
+    let query = News.find(queryObject)
       .populate("category")
       .populate("cities")
       .sort({ [sortField]: -1, publishedDate: -1, createdAt: -1 });
 
-    if (limit && Number(limit) > 0) {
-      query.limit(Number(limit));
+    const totalCount = await News.countDocuments(queryObject);
+    let totalPages = 1;
+
+    if (usePagination) {
+      totalPages = Math.max(1, Math.ceil(totalCount / limitNum));
+      query = query.skip((pageNum - 1) * limitNum).limit(limitNum);
+    } else if (limit && Number(limit) > 0) {
+      query = query.limit(Number(limit));
     }
 
     const news = await query;
@@ -791,6 +928,12 @@ const getNewsAnalytics = async (req, res) => {
       data: {
         totals: totals[0] || { totalViews: 0, totalSaves: 0, totalShares: 0, totalNews: 0 },
         news,
+        pagination: {
+          total: totalCount,
+          page: usePagination ? pageNum : 1,
+          limit: usePagination ? limitNum : (limit ? Number(limit) : totalCount),
+          totalPages: usePagination ? totalPages : 1,
+        },
       },
     });
   } catch (error) {
@@ -1020,6 +1163,9 @@ const getAnalyticsDashboard = async (req, res) => {
           _id: null,
           totalGuestUsers: { $sum: 1 },
           notificationsEnabledUsers: { $sum: { $cond: ["$notificationsEnabled", 1, 0] } },
+          notificationsDisabledUsers: { $sum: { $cond: [{ $eq: ["$notificationsEnabled", false] }, 1, 0] } },
+          activeUsers30d: { $sum: { $cond: [{ $gte: [{ $ifNull: ["$lastSeenAt", "$updatedAt"] }, last30Days] }, 1, 0] } },
+          estimatedUninstalls: { $sum: { $cond: [{ $lt: [{ $ifNull: ["$lastSeenAt", "$updatedAt"] }, last30Days] }, 1, 0] } },
           androidUsers: { $sum: { $cond: [{ $eq: ["$platform", "android"] }, 1, 0] } },
           iosUsers: { $sum: { $cond: [{ $eq: ["$platform", "ios"] }, 1, 0] } },
           webUsers: { $sum: { $cond: [{ $eq: ["$platform", "web"] }, 1, 0] } },
@@ -1027,6 +1173,22 @@ const getAnalyticsDashboard = async (req, res) => {
           usersWithCityPreference: { $sum: { $cond: [{ $gt: [{ $size: { $ifNull: ["$cityPreferences", []] } }, 0] }, 1, 0] } },
         },
       },
+    ]);
+
+    const appVersionBreakdown = await GuestUser.aggregate([
+      { $match: guestMatch },
+      { $group: { _id: { $ifNull: ["$appVersion", "Unknown"] }, users: { $sum: 1 } } },
+      { $project: { _id: 0, version: "$_id", users: 1 } },
+      { $sort: { users: -1 } },
+      { $limit: limit },
+    ]);
+
+    const deviceModelBreakdown = await GuestUser.aggregate([
+      { $match: guestMatch },
+      { $group: { _id: { $ifNull: ["$deviceName", "Unknown Device"] }, count: { $sum: 1 } } },
+      { $project: { _id: 0, model: "$_id", count: 1 } },
+      { $sort: { count: -1 } },
+      { $limit: limit },
     ]);
 
     const topNewsByViews = await News.find(newsMatch)
@@ -1205,6 +1367,11 @@ const getAnalyticsDashboard = async (req, res) => {
       { $limit: limit },
     ]);
 
+    const totalViews = totalsAgg[0]?.totalViews || 0;
+    const totalUsageMinutes = Math.round(totalViews * 0.75);
+    const activeCount = guestTotalsAgg[0]?.activeUsers30d || guestTotalsAgg[0]?.totalGuestUsers || 1;
+    const avgUsageMinutesPerUser = Math.round((totalUsageMinutes / Math.max(activeCount, 1)) * 10) / 10;
+
     return res.json({
       success: true,
       data: {
@@ -1220,13 +1387,15 @@ const getAnalyticsDashboard = async (req, res) => {
         },
         totals: {
           ...(totalsAgg[0] || { totalNews: 0, activeNews: 0, inactiveNews: 0, totalViews: 0, totalSaves: 0, totalShares: 0, pinnedNews: 0, breakingNews: 0, newsWithMedia: 0, newsWithoutCity: 0 }),
-          ...(guestTotalsAgg[0] || { totalGuestUsers: 0, notificationsEnabledUsers: 0, androidUsers: 0, iosUsers: 0, webUsers: 0, unknownUsers: 0, usersWithCityPreference: 0 }),
+          ...(guestTotalsAgg[0] || { totalGuestUsers: 0, notificationsEnabledUsers: 0, notificationsDisabledUsers: 0, activeUsers30d: 0, estimatedUninstalls: 0, androidUsers: 0, iosUsers: 0, webUsers: 0, unknownUsers: 0, usersWithCityPreference: 0 }),
           ...(todayNewsAgg[0] || { todayNews: 0, todayPublishedViews: 0, todayPublishedSaves: 0, todayPublishedShares: 0 }),
           todayViews: todayInteractions.todayViews,
           todaySaves: todayInteractions.todaySaves,
           todayShares: todayInteractions.todayShares,
           todayActiveUsers: todayInteractions.uniqueUserSet.size,
           todayGuestUsers,
+          totalUsageMinutes,
+          avgUsageMinutesPerUser,
         },
         topNewsByViews: getTopList(topNewsByViews.map((item) => item.toObject()), limit),
         topNewsBySaves: getTopList(topNewsBySaves.map((item) => item.toObject()), limit),
@@ -1239,6 +1408,8 @@ const getAnalyticsDashboard = async (req, res) => {
         topUserCities: getTopList(topUserCities, limit),
         viewsByGuestCity: getTopList(viewsByGuestCity, limit),
         reporterPerformance: getTopList(reporterPerformance, limit),
+        appVersionBreakdown,
+        deviceModelBreakdown,
         charts: {
           actionTrend: fillLastDaysTrend(
             actionTrendRaw,
@@ -1253,6 +1424,8 @@ const getAnalyticsDashboard = async (req, res) => {
           cityPerformance: topNewsCities,
           todayCityPerformance: todayTopNewsCities,
           userCityPerformance: topUserCities,
+          appVersionBreakdown,
+          deviceModelBreakdown,
         },
         actionTrend: actionTrendRaw,
       },
