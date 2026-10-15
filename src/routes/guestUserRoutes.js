@@ -57,6 +57,7 @@ const updateGuestNotificationPreference = getHandler([
 const updateGuestCityPreferences = getHandler([
   "updateGuestCityPreferences",
   "updateCityPreferences",
+  "updateGuestNotificationPreference",
 ]);
 
 const deleteGuestUser = getHandler([
@@ -93,6 +94,14 @@ router.patch(
 | Admin guest-device routes
 |--------------------------------------------------------------------------
 */
+
+router.get(
+  "/stats",
+  auth,
+  authorize("super-admin", "editor"),
+  adminLimiter,
+  guestUserController.getDeviceStats
+);
 
 router.get(
   "/",

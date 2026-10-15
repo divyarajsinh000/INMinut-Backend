@@ -1,11 +1,12 @@
 const express = require("express");
-const { getSettings, updateSettings } = require("../controllers/settingsController");
+const { getSettings, updateSettings, updateAppVersionSettings } = require("../controllers/settingsController");
 const { auth, authorize } = require("../middlewares/auth");
 const upload = require("../config/multer");
 
 const router = express.Router();
 
 router.get("/", getSettings);
+router.put("/app-updates", auth, authorize("super-admin"), updateAppVersionSettings);
 router.put(
   "/",
   auth,

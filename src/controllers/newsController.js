@@ -1,4 +1,5 @@
 const News = require("../models/News");
+const Admin = require("../models/Admin");
 const NewsInteraction = require("../models/NewsInteraction");
 const GuestUser = require("../models/GuestUser");
 const path = require("path");
@@ -181,50 +182,72 @@ const getSortField = (sortBy, fallback = "createdAt") => {
   return SORT_KEY_TO_FIELD[sortBy] || fallback;
 };
 
-const buildNewsQuery = ({ category, search, cityIds, city, includeInactive, admin } = {}) => {
-  const query = {};
+// Search terms joined with "+" must ALL match, even across different fields.
+// A normal multi-word search remains a single phrase (e.g. "Anurag Jain").
+const parseSearchTerms = (search) => String(search || "")
+  .split(/\s*\+\s*/)
+  .map((term) => term.trim().slice(0, 120))
+  .filter(Boolean)
+  .slice(0, 6);
 
-  if (!includeInactive) {
-    // Public app/API should show active news and legacy news where isActive does not exist yet.
-    query.isActive = { $ne: false };
+// Interpret full dates in YYYY-MM-DD, DD/MM/YYYY, or DD-MM-YYYY form.
+// Don't guess dates for simple words and numbers (e.g. "2026" or "15").
+const parseSearchDay = (value) => {
+  const text = String(value).trim();
+  let year, month, day;
+  let match = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (match) {
+    [, year, month, day] = match.map(Number);
+  } else {
+    match = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (!match) return null;
+    [, day, month, year] = match.map(Number);
   }
+  const from = new Date(Date.UTC(year, month - 1, day));
+  if (from.getUTCFullYear() !== year || from.getUTCMonth() !== month - 1 || from.getUTCDate() !== day) return null;
+  return { $gte: from, $lt: new Date(from.getTime() + 86400000) };
+};
 
-  if (includeInactive && admin?.role === "reporter") {
-    query.createdBy = admin._id;
-  }
-  const andConditions = [];
+const makeNewsSearchConditions = async (search) => {
+  const terms = parseSearchTerms(search);
+  return Promise.all(terms.map(async (term) => {
+    const keyword = escapeRegExp(term);
+    const or = [
+      { title: { $regex: keyword, $options: "i" } },
+      { description: { $regex: keyword, $options: "i" } },
+      { content: { $regex: keyword, $options: "i" } },
+      { hashtags: { $regex: keyword, $options: "i" } },
+      { "reporter.name": { $regex: keyword, $options: "i" } },
+    ];
 
-  if (category && isValidObjectId(category)) {
-    query.category = category;
-  }
-
-  if (search && String(search).trim()) {
-    const keyword = escapeRegExp(String(search).trim());
-    andConditions.push({
+    // The admin displayed on the News List is populated from createdBy.
+    // MongoDB cannot filter populated names inside a regular News.find().
+    const matchingAdmins = await Admin.find({
       $or: [
-        { title: { $regex: keyword, $options: "i" } },
-        { description: { $regex: keyword, $options: "i" } },
-        { content: { $regex: keyword, $options: "i" } },
-        { hashtags: { $regex: keyword, $options: "i" } },
-        { "reporter.name": { $regex: keyword, $options: "i" } },
+        { name: { $regex: keyword, $options: "i" } },
+        { email: { $regex: keyword, $options: "i" } },
       ],
-    });
-  }
+    }).select("_id").lean();
+    if (matchingAdmins.length) or.push({ createdBy: { $in: matchingAdmins.map((a) => a._id) } });
 
+    const dayRange = parseSearchDay(term);
+    if (dayRange) {
+      or.push({ publishedDate: dayRange });
+      or.push({ createdAt: dayRange });
+    }
+    return { $or: or };
+  }));
+};
+
+const buildNewsQuery = async ({ category, search, cityIds, city, includeInactive, admin } = {}) => {
+  const query = {};
+  if (!includeInactive) query.isActive = { $ne: false };
+  if (includeInactive && admin?.role === "reporter") query.createdBy = admin._id;
+  if (category && isValidObjectId(category)) query.category = category;
+  const andConditions = await makeNewsSearchConditions(search);
   const selectedCities = parseArrayField(cityIds || city).filter((id) => isValidObjectId(id));
-  if (selectedCities.length > 0) {
-    // Strict city filtering: when the app user selects one or more cities,
-    // return news assigned to ANY of those selected cities only.
-    // General/all-city news (cities: []) is shown only when no city filter is selected.
-    andConditions.push({
-      cities: { $in: selectedCities },
-    });
-  }
-
-  if (andConditions.length > 0) {
-    query.$and = andConditions;
-  }
-
+  if (selectedCities.length > 0) andConditions.push({ cities: { $in: selectedCities } });
+  if (andConditions.length > 0) query.$and = andConditions;
   return query;
 };
 
@@ -342,7 +365,7 @@ const getNews = async (req, res) => {
   try {
     const { category, search, cityIds, city, sortBy, onlyWithMetric, includeInactive } = req.query;
     const showInactive = parseBoolean(includeInactive) && Boolean(req.admin);
-    const query = buildNewsQuery({ category, search, cityIds, city, includeInactive: showInactive, admin: req.admin });
+    const query = await buildNewsQuery({ category, search, cityIds, city, includeInactive: showInactive, admin: req.admin });
     const sortField = getSortField(sortBy, "manual");
 
     if (parseBoolean(onlyWithMetric) && METRIC_FIELDS.includes(sortField)) {
@@ -755,7 +778,7 @@ const getNewsAnalytics = async (req, res) => {
     } = req.query;
 
     const sortField = getSortField(sortBy, "shareCount");
-    const queryObject = buildNewsQuery({ category, search, cityIds, city, includeInactive: true, admin: req.admin });
+    const queryObject = await buildNewsQuery({ category, search, cityIds, city, includeInactive: true, admin: req.admin });
 
     // Important for admin filters:
     // Most viewed/saved/shared should not show every news item.
@@ -865,16 +888,8 @@ const getAnalyticsDashboard = async (req, res) => {
     if (breaking === "no") newsMatch.isBreaking = { $ne: true };
     if (pinned === "yes") newsMatch.isPinned = true;
     if (pinned === "no") newsMatch.isPinned = { $ne: true };
-    if (String(search).trim()) {
-      const keyword = escapeRegExp(String(search).trim());
-      newsMatch.$or = [
-        { title: { $regex: keyword, $options: "i" } },
-        { description: { $regex: keyword, $options: "i" } },
-        { content: { $regex: keyword, $options: "i" } },
-        { hashtags: { $regex: keyword, $options: "i" } },
-        { "reporter.name": { $regex: keyword, $options: "i" } },
-      ];
-    }
+    const searchConditions = await makeNewsSearchConditions(search);
+    if (searchConditions.length) newsMatch.$and = searchConditions;
 
     const interactionMatch = {
       createdAt: rangeStart ? { $gte: rangeStart, $lte: rangeEnd } : { $lte: rangeEnd },

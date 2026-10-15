@@ -54,7 +54,7 @@ const buildDevicePayload = ({
   platform: platform || "unknown",
   deviceName: deviceName || "Unknown device",
   appVersion: appVersion || "",
-  notificationsEnabled: notificationsEnabled !== false,
+  notificationsEnabled: notificationsEnabled === true,
   lastSeenAt: new Date(),
 });
 
@@ -70,7 +70,7 @@ const syncDevice = (guestUser, devicePayload) => {
     existingDevice.platform = devicePayload.platform || existingDevice.platform || "unknown";
     existingDevice.deviceName = devicePayload.deviceName || existingDevice.deviceName || "Unknown device";
     existingDevice.appVersion = devicePayload.appVersion || existingDevice.appVersion || "";
-    existingDevice.notificationsEnabled = devicePayload.notificationsEnabled !== false;
+    existingDevice.notificationsEnabled = devicePayload.notificationsEnabled;
     existingDevice.lastSeenAt = new Date();
   } else {
     guestUser.devices.push(devicePayload);
@@ -80,7 +80,10 @@ const syncDevice = (guestUser, devicePayload) => {
 const findExistingGuestForDevice = async ({ guestId, deviceId, expoPushToken, fcmToken }) => {
   const or = [];
 
-  if (deviceId) or.push({ "devices.deviceId": deviceId });
+  if (deviceId) {
+    const matched = await GuestUser.findOne({ "devices.deviceId": deviceId });
+    return matched || (guestId ? GuestUser.findOne({ guestId }) : null);
+  }
   if (expoPushToken) or.push({ expoPushToken }, { "devices.expoPushToken": expoPushToken });
   if (fcmToken) or.push({ fcmToken }, { "devices.fcmToken": fcmToken });
 
@@ -115,10 +118,10 @@ const registerGuestUser = async (req, res) => {
     const deviceId = makeDeviceId({ deviceId: rawDeviceId, expoPushToken, fcmToken, platform, deviceName });
     const guestId = normalizeString(rawGuestId) || `guest_${deviceId}`;
 
-    if (!guestId || (!fcmToken && !expoPushToken)) {
+    if (!guestId || !deviceId) {
       return res.status(400).json({
         success: false,
-        message: "guestId and at least one push token are required",
+        message: "guestId and deviceId are required",
       });
     }
 
@@ -146,7 +149,7 @@ const registerGuestUser = async (req, res) => {
         platform: platform || "unknown",
         deviceName: deviceName || "Unknown device",
         appVersion: appVersion || "",
-        notificationsEnabled: notificationsEnabled !== false,
+        notificationsEnabled: notificationsEnabled === true,
         cityPreferences: cityPreferences !== undefined ? normalizeCityPreferences(cityPreferences) : [],
         lastSeenAt: now,
         devices: [devicePayload],
@@ -158,7 +161,7 @@ const registerGuestUser = async (req, res) => {
       guestUser.platform = platform || guestUser.platform || "unknown";
       guestUser.deviceName = deviceName || guestUser.deviceName || "Unknown device";
       guestUser.appVersion = appVersion || guestUser.appVersion || "";
-      guestUser.notificationsEnabled = notificationsEnabled !== false;
+      guestUser.notificationsEnabled = notificationsEnabled === true;
       guestUser.lastSeenAt = now;
 
       if (cityPreferences !== undefined) {
@@ -260,7 +263,51 @@ const deleteGuestUser = async (req, res) => {
   }
 };
 
+
+const getDeviceStats = async (req, res) => {
+  try {
+    const guests = await GuestUser.find({}, { devices: 1, guestId: 1, platform: 1, appVersion: 1, lastSeenAt: 1, createdAt: 1 }).lean();
+    const byId = new Map();
+    for (const guest of guests) {
+      const devices = guest.devices?.length ? guest.devices : [{
+        deviceId: `legacy_${guest._id}`, platform: guest.platform,
+        appVersion: guest.appVersion, lastSeenAt: guest.lastSeenAt,
+      }];
+      for (const device of devices) {
+        if (!device.deviceId) continue;
+        const id = device.deviceId;
+        const current = byId.get(id);
+        if (!current || new Date(device.lastSeenAt || 0) > new Date(current.lastSeenAt || 0)) {
+          byId.set(id, device);
+        }
+      }
+    }
+    const now = Date.now();
+    const rows = [...byId.values()];
+    const countActive = (days) => rows.filter(d => {
+      const t = new Date(d.lastSeenAt).getTime();
+      return Number.isFinite(t) && now - t >= 0 && now - t < days * 86400000;
+    }).length;
+    const byPlatform = { android: 0, ios: 0, web: 0, unknown: 0 };
+    const byVersion = {};
+    for (const row of rows) {
+      const platform = ['android', 'ios', 'web'].includes(row.platform) ? row.platform : 'unknown';
+      byPlatform[platform]++;
+      const version = row.appVersion || 'Unknown';
+      byVersion[version] = (byVersion[version] || 0) + 1;
+    }
+    return res.json({ success: true, data: {
+      registeredDevices: rows.length, activeToday: countActive(1),
+      activeLast30Days: countActive(30), byPlatform, byVersion,
+      guestRecords: guests.length,
+    } });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to load device statistics' });
+  }
+};
+
 module.exports = {
+  getDeviceStats,
   registerGuestUser,
   updateGuestNotificationPreference,
   getGuestUsers,

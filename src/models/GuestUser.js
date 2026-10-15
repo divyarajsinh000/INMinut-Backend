@@ -34,7 +34,7 @@ const guestDeviceSchema = new mongoose.Schema(
     },
     notificationsEnabled: {
       type: Boolean,
-      default: true,
+      default: false,
     },
     lastSeenAt: {
       type: Date,
@@ -87,7 +87,7 @@ const guestUserSchema = new mongoose.Schema(
 
     notificationsEnabled: {
       type: Boolean,
-      default: true,
+      default: false,
     },
     cityPreferences: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "City" }],
