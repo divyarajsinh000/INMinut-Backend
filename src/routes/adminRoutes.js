@@ -36,8 +36,8 @@ router.post("/reset-password", passwordResetLimiter, resetPassword);
 router.post("/verify-email", emailVerifyLimiter, verifyEmail);
 router.post("/resend-verification", emailVerifyLimiter, resendVerificationEmail);
 
-// Admin management routes (super-admin only)
-router.get("/", auth, authorize("super-admin"), getAdmins);
+// Admin management routes
+router.get("/", auth, authorize("super-admin", "editor", "reporter"), getAdmins);
 router.get("/:id", auth, authorize("super-admin"), validateObjectIds("id"), getAdminById);
 router.put("/:id", auth, authorize("super-admin"), validateObjectIds("id"), updateAdmin);
 router.delete("/:id", auth, authorize("super-admin"), validateObjectIds("id"), deleteAdmin);

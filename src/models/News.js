@@ -60,6 +60,11 @@ const newsSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
     },
+    categories: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Category" }],
+      default: [],
+      index: true,
+    },
     cities: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "City" }],
       default: [],
