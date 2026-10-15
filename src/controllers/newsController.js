@@ -2,29 +2,11 @@ const News = require("../models/News");
 const Admin = require("../models/Admin");
 const NewsInteraction = require("../models/NewsInteraction");
 const GuestUser = require("../models/GuestUser");
-const Setting = require("../models/Setting");
 const path = require("path");
 const fs = require("fs");
 const { deleteFromS3 } = require("../utils/s3");
 const { sendNewsNotificationToGuests } = require("../services/notificationService");
 const { escapeRegExp, isValidObjectId, sanitizeString, sanitizeUrl } = require("../utils/sanitizer");
-
-const normalizeSettingMediaUrl = (urlStr) => {
-  if (!urlStr || typeof urlStr !== "string") return "";
-  const trimmed = urlStr.trim();
-  if (!trimmed) return "";
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
-    return trimmed;
-  }
-  if (trimmed.startsWith("/uploads/")) {
-    return trimmed;
-  }
-  if (trimmed.startsWith("uploads/")) {
-    return `/${trimmed}`;
-  }
-  const cleanPath = trimmed.replace(/^\/+/, "");
-  return `/uploads/images/${cleanPath}`;
-};
 
 const isRemoteUrl = (value = "") =>
   /^https?:\/\//i.test(String(value));
@@ -200,21 +182,13 @@ const getSortField = (sortBy, fallback = "createdAt") => {
   return SORT_KEY_TO_FIELD[sortBy] || fallback;
 };
 
-const buildNewsQuery = async ({
-  category,
-  categories,
-  search,
-  cityIds,
-  city,
-  includeInactive,
-  admin,
-  adminId,
-  createdBy,
-  date,
-  startDate,
-  endDate,
-} = {}) => {
-  const query = {};
+// Search terms joined with "+" must ALL match, even across different fields.
+// A normal multi-word search remains a single phrase (e.g. "Anurag Jain").
+const parseSearchTerms = (search) => String(search || "")
+  .split(/\s*\+\s*/)
+  .map((term) => term.trim().slice(0, 120))
+  .filter(Boolean)
+  .slice(0, 6);
 
 // Interpret full dates in YYYY-MM-DD, DD/MM/YYYY, or DD-MM-YYYY form.
 // Don't guess dates for simple words and numbers (e.g. "2026" or "15").
@@ -246,116 +220,34 @@ const makeNewsSearchConditions = async (search) => {
       { "reporter.name": { $regex: keyword, $options: "i" } },
     ];
 
-  const selectedCategories = parseArrayField(category || categories).filter((id) => isValidObjectId(id));
-  if (selectedCategories.length > 0) {
-    andConditions.push({
+    // The admin displayed on the News List is populated from createdBy.
+    // MongoDB cannot filter populated names inside a regular News.find().
+    const matchingAdmins = await Admin.find({
       $or: [
-        { category: { $in: selectedCategories } },
-        { categories: { $in: selectedCategories } },
+        { name: { $regex: keyword, $options: "i" } },
+        { email: { $regex: keyword, $options: "i" } },
       ],
     }).select("_id").lean();
     if (matchingAdmins.length) or.push({ createdBy: { $in: matchingAdmins.map((a) => a._id) } });
 
-  // Admin filter: creator admin ID
-  const targetAdminId = adminId || createdBy;
-  if (targetAdminId && isValidObjectId(targetAdminId)) {
-    andConditions.push({ createdBy: targetAdminId });
-  }
-
-  // Exact single date filter (publishedDate on specified date YYYY-MM-DD)
-  if (date && String(date).trim()) {
-    const parsedDate = new Date(String(date).trim());
-    if (!Number.isNaN(parsedDate.getTime())) {
-      const startOfDay = new Date(parsedDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(parsedDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      andConditions.push({
-        publishedDate: { $gte: startOfDay, $lte: endOfDay },
-      });
+    const dayRange = parseSearchDay(term);
+    if (dayRange) {
+      or.push({ publishedDate: dayRange });
+      or.push({ createdAt: dayRange });
     }
-  }
+    return { $or: or };
+  }));
+};
 
-  // Date range filter (startDate and/or endDate)
-  if ((startDate && String(startDate).trim()) || (endDate && String(endDate).trim())) {
-    const dateRangeCond = {};
-    if (startDate && String(startDate).trim()) {
-      const sDate = new Date(String(startDate).trim());
-      if (!Number.isNaN(sDate.getTime())) {
-        sDate.setHours(0, 0, 0, 0);
-        dateRangeCond.$gte = sDate;
-      }
-    }
-    if (endDate && String(endDate).trim()) {
-      const eDate = new Date(String(endDate).trim());
-      if (!Number.isNaN(eDate.getTime())) {
-        eDate.setHours(23, 59, 59, 999);
-        dateRangeCond.$lte = eDate;
-      }
-    }
-    if (Object.keys(dateRangeCond).length > 0) {
-      andConditions.push({ publishedDate: dateRangeCond });
-    }
-  }
-
-  // Search keyword filter (matches title, description, content, hashtags, reporter name, admin user name/email, or date string)
-  if (search && String(search).trim()) {
-    const rawSearch = String(search).trim();
-    const keyword = escapeRegExp(rawSearch);
-    const orConditions = [
-      { title: { $regex: keyword, $options: "i" } },
-      { description: { $regex: keyword, $options: "i" } },
-      { content: { $regex: keyword, $options: "i" } },
-      { hashtags: { $regex: keyword, $options: "i" } },
-      { "reporter.name": { $regex: keyword, $options: "i" } },
-    ];
-
-    // Check if matching Admin users exist for keyword
-    try {
-      const matchingAdmins = await Admin.find({
-        $or: [
-          { name: { $regex: keyword, $options: "i" } },
-          { email: { $regex: keyword, $options: "i" } },
-        ],
-      }).select("_id");
-
-      if (matchingAdmins.length > 0) {
-        orConditions.push({
-          createdBy: { $in: matchingAdmins.map((a) => a._id) },
-        });
-      }
-    } catch (_) {
-      // Ignore admin lookup failures
-    }
-
-    // Check if rawSearch is a date string like YYYY-MM-DD or DD/MM/YYYY
-    if (/^\d{4}-\d{2}-\d{2}$/.test(rawSearch) || /^\d{2}\/\d{2}\/\d{4}$/.test(rawSearch)) {
-      const d = new Date(rawSearch);
-      if (!Number.isNaN(d.getTime())) {
-        const sOfDay = new Date(d);
-        sOfDay.setHours(0, 0, 0, 0);
-        const eOfDay = new Date(d);
-        eOfDay.setHours(23, 59, 59, 999);
-        orConditions.push({
-          publishedDate: { $gte: sOfDay, $lte: eOfDay },
-        });
-      }
-    }
-
-    andConditions.push({ $or: orConditions });
-  }
-
+const buildNewsQuery = async ({ category, search, cityIds, city, includeInactive, admin } = {}) => {
+  const query = {};
+  if (!includeInactive) query.isActive = { $ne: false };
+  if (includeInactive && admin?.role === "reporter") query.createdBy = admin._id;
+  if (category && isValidObjectId(category)) query.category = category;
+  const andConditions = await makeNewsSearchConditions(search);
   const selectedCities = parseArrayField(cityIds || city).filter((id) => isValidObjectId(id));
-  if (selectedCities.length > 0) {
-    andConditions.push({
-      cities: { $in: selectedCities },
-    });
-  }
-
-  if (andConditions.length > 0) {
-    query.$and = andConditions;
-  }
-
+  if (selectedCities.length > 0) andConditions.push({ cities: { $in: selectedCities } });
+  if (andConditions.length > 0) query.$and = andConditions;
   return query;
 };
 
@@ -370,7 +262,6 @@ const createNews = async (req, res) => {
       descriptionFontSize,
       content,
       category,
-      categories,
       reporter,
       hashtags,
       isBreaking,
@@ -382,7 +273,6 @@ const createNews = async (req, res) => {
       isPinned,
       publishedDate,
       cities,
-      sendNotification,
     } = req.body;
 
     // Parse reporter from JSON string if needed
@@ -396,37 +286,7 @@ const createNews = async (req, res) => {
     }
 
     // Supports both multer-s3 in production and diskStorage locally.
-    let media = mapUploadedFilesToMedia(req.files || []);
-
-    if (media.length === 0) {
-      const defaultImageUrl = req.body.defaultNewsImageUrl;
-      if (defaultImageUrl) {
-        media = [
-          {
-            url: normalizeSettingMediaUrl(defaultImageUrl),
-            type: "image",
-            originalName: "default_news_image.jpg",
-          },
-        ];
-      } else {
-        const setting = await Setting.findOne();
-        if (setting && setting.defaultNewsImage) {
-          media = [
-            {
-              url: normalizeSettingMediaUrl(setting.defaultNewsImage),
-              type: "image",
-              originalName: "default_news_image.jpg",
-            },
-          ];
-        }
-      }
-    }
-
-    const parsedCategories = parseArrayField(categories).filter((id) => isValidObjectId(id));
-    const primaryCategory = parsedCategories[0] || (category && isValidObjectId(category) ? category : null);
-    if (primaryCategory && !parsedCategories.includes(primaryCategory)) {
-      parsedCategories.unshift(primaryCategory);
-    }
+    const media = mapUploadedFilesToMedia(req.files || []);
 
     const news = await News.create({
       title,
@@ -437,8 +297,7 @@ const createNews = async (req, res) => {
       descriptionFontSize: parseNumberField(descriptionFontSize, 16, 10, 40),
       content,
       media,
-      category: primaryCategory,
-      categories: parsedCategories,
+      category: category === "" || category === "null" ? null : category,
       cities: parseArrayField(cities),
       reporter: {
         name: req.admin?.name || "",
@@ -457,22 +316,11 @@ const createNews = async (req, res) => {
       publishedDate,
     });
 
-    const populatedNews = await News.findById(news._id).populate("category").populate("categories").populate("cities");
-
-    const shouldSendNotification =
-      sendNotification === undefined ? true : parseBoolean(sendNotification);
+    const populatedNews = await News.findById(news._id).populate("category").populate("cities");
 
     let notificationResult = null;
     try {
-      if (!shouldSendNotification) {
-        notificationResult = {
-          success: true,
-          sent: 0,
-          failed: 0,
-          skipped: true,
-          reason: "Notification disabled for this creation",
-        };
-      } else if (populatedNews.isActive === false) {
+      if (populatedNews.isActive === false) {
         notificationResult = { success: true, sent: 0, failed: 0, skipped: true, reason: "News is off/hidden" };
       } else {
         notificationResult = await sendNewsNotificationToGuests(populatedNews);
@@ -515,9 +363,9 @@ const createNews = async (req, res) => {
 
 const getNews = async (req, res) => {
   try {
-    const { category, categories, search, adminId, createdBy, date, startDate, endDate, cityIds, city, sortBy, onlyWithMetric, includeInactive, page, limit } = req.query;
+    const { category, search, cityIds, city, sortBy, onlyWithMetric, includeInactive } = req.query;
     const showInactive = parseBoolean(includeInactive) && Boolean(req.admin);
-    const query = await buildNewsQuery({ category, categories, search, adminId, createdBy, date, startDate, endDate, cityIds, city, includeInactive: showInactive, admin: req.admin });
+    const query = await buildNewsQuery({ category, search, cityIds, city, includeInactive: showInactive, admin: req.admin });
     const sortField = getSortField(sortBy, "manual");
 
     if (parseBoolean(onlyWithMetric) && METRIC_FIELDS.includes(sortField)) {
@@ -529,29 +377,11 @@ const getNews = async (req, res) => {
         ? { [sortField]: -1, publishedDate: -1, createdAt: -1 }
         : { isPinned: -1, pinOrder: 1, sortOrder: 1, publishedDate: -1, createdAt: -1 };
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const usePagination = !isNaN(pageNum) && pageNum > 0 && !isNaN(limitNum) && limitNum > 0;
-
-    let newsQuery = News.find(query)
+    const news = await News.find(query)
       .populate("category")
-      .populate("categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage")
       .sort(sortOptions);
-
-    let totalCount = 0;
-    let totalPages = 1;
-
-    if (usePagination) {
-      totalCount = await News.countDocuments(query);
-      totalPages = Math.max(1, Math.ceil(totalCount / limitNum));
-      newsQuery = newsQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
-    } else {
-      totalCount = await News.countDocuments(query);
-    }
-
-    const news = await newsQuery;
 
     const formattedNews = news.map(item => {
       const obj = item.toObject();
@@ -567,12 +397,6 @@ const getNews = async (req, res) => {
     return res.json({
       success: true,
       data: formattedNews,
-      pagination: {
-        total: totalCount,
-        page: usePagination ? pageNum : 1,
-        limit: usePagination ? limitNum : totalCount,
-        totalPages: usePagination ? totalPages : 1,
-      },
     });
   } catch (error) {
     console.error("Get news error:", error);
@@ -589,7 +413,6 @@ const getNewsById = async (req, res) => {
 
     const news = await News.findById(id)
       .populate("category")
-      .populate("categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage");
 
@@ -633,7 +456,6 @@ const updateNews = async (req, res) => {
       descriptionFontSize,
       content,
       category,
-      categories,
       reporter,
       hashtags,
       isBreaking,
@@ -705,15 +527,6 @@ const updateNews = async (req, res) => {
       ...mapUploadedFilesToMedia(req.files || []),
     ];
 
-    const parsedCategories = categories !== undefined
-      ? parseArrayField(categories).filter((id) => isValidObjectId(id))
-      : (existingNews.categories?.map(c => typeof c === 'string' ? c : c?._id).filter(Boolean) || []);
-
-    let primaryCategory = parsedCategories[0] || (category && isValidObjectId(category) ? category : (category === "" || category === "null" ? null : (typeof existingNews.category === 'string' ? existingNews.category : existingNews.category?._id)));
-    if (primaryCategory && !parsedCategories.includes(primaryCategory)) {
-      parsedCategories.unshift(primaryCategory);
-    }
-
     const news = await News.findByIdAndUpdate(
       id,
       {
@@ -725,8 +538,7 @@ const updateNews = async (req, res) => {
         descriptionFontSize: parseNumberField(descriptionFontSize, existingNews.descriptionFontSize || 16, 10, 40),
         content,
         media: updatedMedia,
-        category: primaryCategory,
-        categories: parsedCategories,
+        category: category === "" || category === "null" ? null : category,
         cities: parseArrayField(cities, existingNews.cities),
         hashtags: hashtags === undefined ? existingNews.hashtags : parseArrayField(hashtags),
         isBreaking: parseBoolean(isBreaking),
@@ -739,7 +551,7 @@ const updateNews = async (req, res) => {
         publishedDate,
       },
       { new: true }
-    ).populate("category").populate("categories").populate("cities").populate("createdBy", "name email role profileImage");
+    ).populate("category").populate("cities").populate("createdBy", "name email role profileImage");
 
     const obj = news.toObject();
     if (obj.createdBy) {
@@ -857,7 +669,6 @@ const reorderNews = async (req, res) => {
 
     const news = await News.find({ _id: { $in: orderedIds } })
       .populate("category")
-      .populate("categories")
       .populate("cities")
       .sort({ isPinned: -1, pinOrder: 1, sortOrder: 1, publishedDate: -1, createdAt: -1 });
 
@@ -891,7 +702,7 @@ const togglePinNews = async (req, res) => {
     }
 
     await news.save();
-    const populatedNews = await News.findById(news._id).populate("category").populate("categories").populate("cities");
+    const populatedNews = await News.findById(news._id).populate("category").populate("cities");
 
     return res.json({
       success: true,
@@ -922,7 +733,6 @@ const toggleActiveNews = async (req, res) => {
 
     const populatedNews = await News.findById(news._id)
       .populate("category")
-      .populate("categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage");
 
@@ -960,14 +770,8 @@ const getNewsAnalytics = async (req, res) => {
     const {
       sortBy = "shareCount",
       limit,
-      page,
       category,
       search,
-      adminId,
-      createdBy,
-      date,
-      startDate,
-      endDate,
       cityIds,
       city,
       onlyWithMetric = "false",
@@ -983,23 +787,13 @@ const getNewsAnalytics = async (req, res) => {
       queryObject[sortField] = { $gt: 0 };
     }
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const usePagination = !isNaN(pageNum) && pageNum > 0 && !isNaN(limitNum) && limitNum > 0;
-
-    let query = News.find(queryObject)
+    const query = News.find(queryObject)
       .populate("category")
       .populate("cities")
       .sort({ [sortField]: -1, publishedDate: -1, createdAt: -1 });
 
-    const totalCount = await News.countDocuments(queryObject);
-    let totalPages = 1;
-
-    if (usePagination) {
-      totalPages = Math.max(1, Math.ceil(totalCount / limitNum));
-      query = query.skip((pageNum - 1) * limitNum).limit(limitNum);
-    } else if (limit && Number(limit) > 0) {
-      query = query.limit(Number(limit));
+    if (limit && Number(limit) > 0) {
+      query.limit(Number(limit));
     }
 
     const news = await query;
@@ -1020,12 +814,6 @@ const getNewsAnalytics = async (req, res) => {
       data: {
         totals: totals[0] || { totalViews: 0, totalSaves: 0, totalShares: 0, totalNews: 0 },
         news,
-        pagination: {
-          total: totalCount,
-          page: usePagination ? pageNum : 1,
-          limit: usePagination ? limitNum : (limit ? Number(limit) : totalCount),
-          totalPages: usePagination ? totalPages : 1,
-        },
       },
     });
   } catch (error) {
@@ -1247,9 +1035,6 @@ const getAnalyticsDashboard = async (req, res) => {
           _id: null,
           totalGuestUsers: { $sum: 1 },
           notificationsEnabledUsers: { $sum: { $cond: ["$notificationsEnabled", 1, 0] } },
-          notificationsDisabledUsers: { $sum: { $cond: [{ $eq: ["$notificationsEnabled", false] }, 1, 0] } },
-          activeUsers30d: { $sum: { $cond: [{ $gte: [{ $ifNull: ["$lastSeenAt", "$updatedAt"] }, last30Days] }, 1, 0] } },
-          estimatedUninstalls: { $sum: { $cond: [{ $lt: [{ $ifNull: ["$lastSeenAt", "$updatedAt"] }, last30Days] }, 1, 0] } },
           androidUsers: { $sum: { $cond: [{ $eq: ["$platform", "android"] }, 1, 0] } },
           iosUsers: { $sum: { $cond: [{ $eq: ["$platform", "ios"] }, 1, 0] } },
           webUsers: { $sum: { $cond: [{ $eq: ["$platform", "web"] }, 1, 0] } },
@@ -1257,22 +1042,6 @@ const getAnalyticsDashboard = async (req, res) => {
           usersWithCityPreference: { $sum: { $cond: [{ $gt: [{ $size: { $ifNull: ["$cityPreferences", []] } }, 0] }, 1, 0] } },
         },
       },
-    ]);
-
-    const appVersionBreakdown = await GuestUser.aggregate([
-      { $match: guestMatch },
-      { $group: { _id: { $ifNull: ["$appVersion", "Unknown"] }, users: { $sum: 1 } } },
-      { $project: { _id: 0, version: "$_id", users: 1 } },
-      { $sort: { users: -1 } },
-      { $limit: limit },
-    ]);
-
-    const deviceModelBreakdown = await GuestUser.aggregate([
-      { $match: guestMatch },
-      { $group: { _id: { $ifNull: ["$deviceName", "Unknown Device"] }, count: { $sum: 1 } } },
-      { $project: { _id: 0, model: "$_id", count: 1 } },
-      { $sort: { count: -1 } },
-      { $limit: limit },
     ]);
 
     const topNewsByViews = await News.find(newsMatch)
@@ -1451,11 +1220,6 @@ const getAnalyticsDashboard = async (req, res) => {
       { $limit: limit },
     ]);
 
-    const totalViews = totalsAgg[0]?.totalViews || 0;
-    const totalUsageMinutes = Math.round(totalViews * 0.75);
-    const activeCount = guestTotalsAgg[0]?.activeUsers30d || guestTotalsAgg[0]?.totalGuestUsers || 1;
-    const avgUsageMinutesPerUser = Math.round((totalUsageMinutes / Math.max(activeCount, 1)) * 10) / 10;
-
     return res.json({
       success: true,
       data: {
@@ -1471,15 +1235,13 @@ const getAnalyticsDashboard = async (req, res) => {
         },
         totals: {
           ...(totalsAgg[0] || { totalNews: 0, activeNews: 0, inactiveNews: 0, totalViews: 0, totalSaves: 0, totalShares: 0, pinnedNews: 0, breakingNews: 0, newsWithMedia: 0, newsWithoutCity: 0 }),
-          ...(guestTotalsAgg[0] || { totalGuestUsers: 0, notificationsEnabledUsers: 0, notificationsDisabledUsers: 0, activeUsers30d: 0, estimatedUninstalls: 0, androidUsers: 0, iosUsers: 0, webUsers: 0, unknownUsers: 0, usersWithCityPreference: 0 }),
+          ...(guestTotalsAgg[0] || { totalGuestUsers: 0, notificationsEnabledUsers: 0, androidUsers: 0, iosUsers: 0, webUsers: 0, unknownUsers: 0, usersWithCityPreference: 0 }),
           ...(todayNewsAgg[0] || { todayNews: 0, todayPublishedViews: 0, todayPublishedSaves: 0, todayPublishedShares: 0 }),
           todayViews: todayInteractions.todayViews,
           todaySaves: todayInteractions.todaySaves,
           todayShares: todayInteractions.todayShares,
           todayActiveUsers: todayInteractions.uniqueUserSet.size,
           todayGuestUsers,
-          totalUsageMinutes,
-          avgUsageMinutesPerUser,
         },
         topNewsByViews: getTopList(topNewsByViews.map((item) => item.toObject()), limit),
         topNewsBySaves: getTopList(topNewsBySaves.map((item) => item.toObject()), limit),
@@ -1492,8 +1254,6 @@ const getAnalyticsDashboard = async (req, res) => {
         topUserCities: getTopList(topUserCities, limit),
         viewsByGuestCity: getTopList(viewsByGuestCity, limit),
         reporterPerformance: getTopList(reporterPerformance, limit),
-        appVersionBreakdown,
-        deviceModelBreakdown,
         charts: {
           actionTrend: fillLastDaysTrend(
             actionTrendRaw,
@@ -1508,8 +1268,6 @@ const getAnalyticsDashboard = async (req, res) => {
           cityPerformance: topNewsCities,
           todayCityPerformance: todayTopNewsCities,
           userCityPerformance: topUserCities,
-          appVersionBreakdown,
-          deviceModelBreakdown,
         },
         actionTrend: actionTrendRaw,
       },
