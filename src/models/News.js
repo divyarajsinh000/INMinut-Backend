@@ -168,4 +168,6 @@ const newsSchema = new mongoose.Schema(
   }
 );
 
+newsSchema.index({ publishedDate: -1 });
+
 module.exports = mongoose.model("News", newsSchema);

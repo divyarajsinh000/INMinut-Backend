@@ -1,4 +1,5 @@
 const News = require("../models/News");
+const City = require("../models/City");
 const Admin = require("../models/Admin");
 const NewsInteraction = require("../models/NewsInteraction");
 const GuestUser = require("../models/GuestUser");
@@ -239,14 +240,45 @@ const makeNewsSearchConditions = async (search) => {
   }));
 };
 
-const buildNewsQuery = async ({ category, search, cityIds, city, includeInactive, admin } = {}) => {
+// Calendar dates are interpreted in IST, independently of server timezone.
+const filterError = (message) => Object.assign(new Error(message), { status: 400 });
+const istDay = (value) => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw filterError("Use YYYY-MM-DD for dates");
+  const utc = new Date(value + "T00:00:00.000Z");
+  if (!Number.isFinite(utc.getTime()) || utc.toISOString().slice(0, 10) !== value) throw filterError("Invalid calendar date");
+  return new Date(utc.getTime() - 330 * 60000);
+};
+const publishedRange = ({ dateFilter, date, startDate, endDate }) => {
+  if (dateFilter !== undefined && dateFilter !== "today" && dateFilter !== "all") throw filterError("Invalid dateFilter");
+  if (dateFilter === "today") {
+    if (date || startDate || endDate) throw filterError("Conflicting date filters");
+    date = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  }
+  if (date && (startDate || endDate)) throw filterError("Conflicting date filters");
+  const from = date || startDate;
+  const to = date || endDate;
+  const range = {};
+  if (from !== undefined) range.$gte = istDay(from);
+  if (to !== undefined) range.$lt = new Date(istDay(to).getTime() + 86400000);
+  if (range.$gte && range.$lt && range.$gte >= range.$lt) throw filterError("Start date cannot be after end date");
+  return Object.keys(range).length ? range : null;
+};
+
+const buildNewsQuery = async ({ category, search, cityIds, city, stateId, dateFilter, date, startDate, endDate, includeInactive, admin } = {}) => {
   const query = {};
   if (!includeInactive) query.isActive = { $ne: false };
   if (includeInactive && admin?.role === "reporter") query.createdBy = admin._id;
-  if (category && isValidObjectId(category)) query.category = category;
   const andConditions = await makeNewsSearchConditions(search);
+  if (category && isValidObjectId(category)) andConditions.push({ $or: [{ category }, { categories: category }] });
   const selectedCities = parseArrayField(cityIds || city).filter((id) => isValidObjectId(id));
-  if (selectedCities.length > 0) andConditions.push({ cities: { $in: selectedCities } });
+  if (stateId !== undefined) {
+    if (typeof stateId !== "string" || !isValidObjectId(stateId)) throw filterError("Invalid stateId");
+    const stateCities = await City.find({ state: stateId, isActive: true }).select("_id").lean();
+    const ids = stateCities.map(c => String(c._id));
+    andConditions.push({ cities: { $in: selectedCities.length ? ids.filter(id => selectedCities.includes(id)) : ids } });
+  } else if (selectedCities.length > 0) andConditions.push({ cities: { $in: selectedCities } });
+  const range = publishedRange({ dateFilter, date, startDate, endDate });
+  if (range) query.publishedDate = range;
   if (andConditions.length > 0) query.$and = andConditions;
   return query;
 };
@@ -363,9 +395,9 @@ const createNews = async (req, res) => {
 
 const getNews = async (req, res) => {
   try {
-    const { category, search, cityIds, city, sortBy, onlyWithMetric, includeInactive } = req.query;
+    const { category, search, cityIds, city, stateId, dateFilter, date, startDate, endDate, sortBy, onlyWithMetric, includeInactive } = req.query;
     const showInactive = parseBoolean(includeInactive) && Boolean(req.admin);
-    const query = await buildNewsQuery({ category, search, cityIds, city, includeInactive: showInactive, admin: req.admin });
+    const query = await buildNewsQuery({ category, search, cityIds, city, stateId, dateFilter, date, startDate, endDate, includeInactive: showInactive, admin: req.admin });
     const sortField = getSortField(sortBy, "manual");
 
     if (parseBoolean(onlyWithMetric) && METRIC_FIELDS.includes(sortField)) {
@@ -378,7 +410,7 @@ const getNews = async (req, res) => {
         : { isPinned: -1, pinOrder: 1, sortOrder: 1, publishedDate: -1, createdAt: -1 };
 
     const news = await News.find(query)
-      .populate("category")
+      .populate("category categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage")
       .sort(sortOptions);
@@ -399,6 +431,7 @@ const getNews = async (req, res) => {
       data: formattedNews,
     });
   } catch (error) {
+    if (error.status === 400) return res.status(400).json({ success: false, message: error.message });
     console.error("Get news error:", error);
     return res.status(500).json({
       success: false,
@@ -412,7 +445,7 @@ const getNewsById = async (req, res) => {
     const { id } = req.params;
 
     const news = await News.findById(id)
-      .populate("category")
+      .populate("category categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage");
 
@@ -732,7 +765,7 @@ const toggleActiveNews = async (req, res) => {
     await news.save();
 
     const populatedNews = await News.findById(news._id)
-      .populate("category")
+      .populate("category categories")
       .populate("cities")
       .populate("createdBy", "name email role profileImage");
 
@@ -1367,6 +1400,7 @@ const trackNewsInteraction = async (req, res) => {
         viewCount: updatedNews?.viewCount || 0,
         saveCount: updatedNews?.saveCount || 0,
         shareCount: updatedNews?.shareCount || 0,
+        likeCount: updatedNews?.likeCount || 0,
       },
     });
   } catch (error) {
