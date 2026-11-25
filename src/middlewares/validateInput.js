@@ -37,7 +37,12 @@ const validateObjectIds = (...paramNames) => {
  */
 const sanitizeInputMiddleware = (req, res, next) => {
   if (req.body && typeof req.body === "object") {
+    const isEmbedWrite = (req.method === "POST" && /^\/api\/embeds\/?$/i.test(req.path)) ||
+      (req.method === "PUT" && /^\/api\/embeds\/[a-f0-9]{24}\/?$/i.test(req.path));
+    const originalEmbed = isEmbedWrite ? req.body.embedCode : undefined;
     req.body = sanitizePayload(req.body);
+    // The authorized embed controller validates this field separately.
+    if (typeof originalEmbed === "string") req.body.embedCode = originalEmbed;
   }
   if (req.query && typeof req.query === "object") {
     req.query = sanitizePayload(req.query);

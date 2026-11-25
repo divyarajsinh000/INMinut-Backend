@@ -11,6 +11,11 @@ const embedSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    shareUrl: {
+  type: String,
+  trim: true,
+  default: "",
+},
     height: {
       type: Number,
       required: true,

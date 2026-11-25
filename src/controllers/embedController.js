@@ -1,4 +1,6 @@
 const Embed = require("../models/Embed");
+const Category = require("../models/Category");
+const { prepareEmbedCode } = require("../utils/embedContent");
 const { sanitizeString, isValidObjectId, escapeRegExp } = require("../utils/sanitizer");
 
 const parseBoolean = (value) => {
@@ -7,21 +9,62 @@ const parseBoolean = (value) => {
   return Boolean(value);
 };
 
-const parseArrayField = (value, fallback = []) => {
-  if (value === undefined || value === null || value === "") return fallback;
-  if (Array.isArray(value)) return value.filter((id) => Boolean(id) && isValidObjectId(id));
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter((id) => Boolean(id) && isValidObjectId(id)) : fallback;
-    } catch (_) {
-      return value
-        .split(",")
-        .map((item) => item.trim())
-        .filter((id) => Boolean(id) && isValidObjectId(id));
-    }
+const parseCategories = async (value) => {
+  if (value === undefined) return [];
+  let ids = value;
+  if (typeof ids === "string") {
+    try { ids = JSON.parse(ids); } catch { ids = ids.split(",").map((id) => id.trim()); }
   }
-  return fallback;
+  if (!Array.isArray(ids) || ids.some((id) => !isValidObjectId(id))) throw new Error("Invalid target categories");
+  ids = [...new Set(ids.map((id) => id.toLowerCase()))];
+  if (ids.length && await Category.countDocuments({ _id: { $in: ids } }) !== ids.length) throw new Error("One or more target categories no longer exist");
+  return ids;
+};
+const validateShareUrl = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+
+  if (typeof value !== "string") {
+    throw new Error("Invalid share URL");
+  }
+
+  const url = value.trim();
+
+  if (!url) return "";
+
+  try {
+    const parsed = new URL(url);
+
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new Error();
+    }
+
+    if (parsed.username || parsed.password) {
+      throw new Error();
+    }
+
+    return url;
+  } catch {
+    throw new Error("Share URL must be a valid HTTP or HTTPS URL");
+  }
+};
+const validateEmbedFields = async (body, creating = false) => {
+  const values = {};
+
+  if (creating || body.embedCode !== undefined) {
+    values.embedCode = prepareEmbedCode(body.embedCode);
+  }
+
+  if (creating || body.categories !== undefined) {
+    values.categories = await parseCategories(body.categories);
+  }
+
+  if (creating || body.shareUrl !== undefined) {
+    values.shareUrl = validateShareUrl(body.shareUrl);
+  }
+
+  return values;
 };
 
 const createEmbed = async (req, res) => {
@@ -45,16 +88,20 @@ const createEmbed = async (req, res) => {
       });
     }
 
+    let validated;
+    try { validated = await validateEmbedFields(req.body, true); } catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+
     const embed = await Embed.create({
       title: sanitizeString(title),
-      embedCode: sanitizeString(embedCode),
+      embedCode: validated.embedCode,
+       shareUrl: validated.shareUrl,
       height: numericHeight,
       positionAfterNews: numericPosition,
       isEnabled: isEnabled === undefined ? true : parseBoolean(isEnabled),
-      categories: parseArrayField(categories),
+      categories: validated.categories,
     });
 
-    const populatedEmbed = await Embed.findById(embed._id).populate("categories");
+    const populatedEmbed = await Embed.findById(embed._id).populate({ path: "categories", transform: (doc, id) => doc || { _id: id, name: "Deleted category" } });
 
     return res.status(201).json({
       success: true,
@@ -76,6 +123,17 @@ const getEmbeds = async (req, res) => {
       query.isEnabled = true;
     }
 
+    const category = req.query.category ?? req.query.categoryId;
+    if (category !== undefined) {
+      if (category === "all") {
+        query.categories = { $size: 0 };
+      } else if (isValidObjectId(category)) {
+        query.$or = [{ categories: { $size: 0 } }, { categories: category }];
+      } else {
+        return res.status(400).json({ success: false, message: "Invalid category filter" });
+      }
+    }
+
     if (search && String(search).trim()) {
       const keyword = escapeRegExp(String(search).trim());
       query.title = { $regex: keyword, $options: "i" };
@@ -85,7 +143,7 @@ const getEmbeds = async (req, res) => {
       ? { createdAt: -1 } 
       : { positionAfterNews: 1, createdAt: -1 };
 
-    const embeds = await Embed.find(query).populate("categories").sort(sortOptions);
+    const embeds = await Embed.find(query).populate({ path: "categories", transform: (doc, id) => doc || { _id: id, name: "Deleted category" } }).sort(sortOptions);
 
     return res.json({ success: true, data: embeds });
   } catch (error) {
@@ -96,7 +154,7 @@ const getEmbeds = async (req, res) => {
 
 const getEmbedById = async (req, res) => {
   try {
-    const embed = await Embed.findById(req.params.id).populate("categories");
+    const embed = await Embed.findById(req.params.id).populate({ path: "categories", transform: (doc, id) => doc || { _id: id, name: "Deleted category" } });
     if (!embed) {
       return res.status(404).json({ success: false, message: "Embed not found" });
     }
@@ -117,15 +175,19 @@ const updateEmbed = async (req, res) => {
 
     const { title, embedCode, height, positionAfterNews, isEnabled, categories } = req.body;
 
-    if (title !== undefined) embed.title = title;
-    if (embedCode !== undefined) embed.embedCode = embedCode;
+    let validated;
+    try { validated = await validateEmbedFields(req.body); } catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+    if (title !== undefined) embed.title = sanitizeString(title);
+    if (embedCode !== undefined) embed.embedCode = validated.embedCode;
     if (height !== undefined) embed.height = Number(height);
     if (positionAfterNews !== undefined) embed.positionAfterNews = Number(positionAfterNews);
     if (isEnabled !== undefined) embed.isEnabled = parseBoolean(isEnabled);
-    if (categories !== undefined) embed.categories = parseArrayField(categories);
-
+    if (categories !== undefined) embed.categories = validated.categories;
+if (req.body.shareUrl !== undefined) {
+  embed.shareUrl = validated.shareUrl;
+}
     await embed.save();
-    await embed.populate("categories");
+    await embed.populate({ path: "categories", transform: (doc, id) => doc || { _id: id, name: "Deleted category" } });
 
     return res.json({
       success: true,
@@ -161,7 +223,7 @@ const toggleEmbed = async (req, res) => {
 
     embed.isEnabled = !embed.isEnabled;
     await embed.save();
-    await embed.populate("categories");
+    await embed.populate({ path: "categories", transform: (doc, id) => doc || { _id: id, name: "Deleted category" } });
 
     return res.json({
       success: true,

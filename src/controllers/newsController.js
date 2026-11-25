@@ -138,6 +138,8 @@ const parseBoolean = (value) => {
   return Boolean(value);
 };
 
+const notificationRequested = (value) => value === true || value === "true";
+
 const parseNumberField = (value, fallback, min, max) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -305,6 +307,7 @@ const createNews = async (req, res) => {
       isPinned,
       publishedDate,
       cities,
+      sendNotification,
     } = req.body;
 
     // Parse reporter from JSON string if needed
@@ -352,7 +355,9 @@ const createNews = async (req, res) => {
 
     let notificationResult = null;
     try {
-      if (populatedNews.isActive === false) {
+      if (!notificationRequested(sendNotification)) {
+        notificationResult = { success: true, sent: 0, failed: 0, skipped: true, reason: "Notification disabled for this news" };
+      } else if (populatedNews.isActive === false) {
         notificationResult = { success: true, sent: 0, failed: 0, skipped: true, reason: "News is off/hidden" };
       } else {
         notificationResult = await sendNewsNotificationToGuests(populatedNews);
@@ -595,9 +600,7 @@ const updateNews = async (req, res) => {
     }
 
     // This flag controls notifications only for this edit request.
-    // Default true keeps older admin clients working exactly as before.
-    const shouldSendNotification =
-      sendNotification === undefined ? true : parseBoolean(sendNotification);
+    const shouldSendNotification = notificationRequested(sendNotification);
 
     let notificationResult = null;
     try {
@@ -778,7 +781,7 @@ const toggleActiveNews = async (req, res) => {
     }
 
     let notificationResult = null;
-    if (news.isActive) {
+    if (news.isActive && notificationRequested(req.body?.sendNotification)) {
       try {
         notificationResult = await sendNewsNotificationToGuests(populatedNews);
       } catch (notificationError) {
