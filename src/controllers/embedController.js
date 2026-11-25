@@ -49,6 +49,13 @@ const validateShareUrl = (value) => {
     throw new Error("Share URL must be a valid HTTP or HTTPS URL");
   }
 };
+const dimension = (value, name, min, max) => {
+  if ((typeof value !== "number" && typeof value !== "string") || String(value).trim() === "") throw new Error(`${name} must be a number`);
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${name} must be between ${min} and ${max}`);
+  return n;
+};
+
 const validateEmbedFields = async (body, creating = false) => {
   const values = {};
 
@@ -64,6 +71,12 @@ const validateEmbedFields = async (body, creating = false) => {
     values.shareUrl = validateShareUrl(body.shareUrl);
   }
 
+  if (creating || body.height !== undefined) values.height = dimension(body.height, "Height", 80, 4000);
+  if (creating || body.width !== undefined) values.width = body.width == null || body.width === "" ? null : dimension(body.width, "Width", 50, 2000);
+  if (creating || body.autoSize !== undefined) {
+    if (body.autoSize !== undefined && ![true, false, "true", "false"].includes(body.autoSize)) throw new Error("Invalid autoSize value");
+    values.autoSize = parseBoolean(body.autoSize);
+  }
   return values;
 };
 
@@ -95,7 +108,9 @@ const createEmbed = async (req, res) => {
       title: sanitizeString(title),
       embedCode: validated.embedCode,
        shareUrl: validated.shareUrl,
-      height: numericHeight,
+      height: validated.height,
+      width: validated.width,
+      autoSize: validated.autoSize,
       positionAfterNews: numericPosition,
       isEnabled: isEnabled === undefined ? true : parseBoolean(isEnabled),
       categories: validated.categories,
@@ -179,7 +194,9 @@ const updateEmbed = async (req, res) => {
     try { validated = await validateEmbedFields(req.body); } catch (error) { return res.status(400).json({ success: false, message: error.message }); }
     if (title !== undefined) embed.title = sanitizeString(title);
     if (embedCode !== undefined) embed.embedCode = validated.embedCode;
-    if (height !== undefined) embed.height = Number(height);
+    if (height !== undefined) embed.height = validated.height;
+    if (req.body.width !== undefined) embed.width = validated.width;
+    if (req.body.autoSize !== undefined) embed.autoSize = validated.autoSize;
     if (positionAfterNews !== undefined) embed.positionAfterNews = Number(positionAfterNews);
     if (isEnabled !== undefined) embed.isEnabled = parseBoolean(isEnabled);
     if (categories !== undefined) embed.categories = validated.categories;

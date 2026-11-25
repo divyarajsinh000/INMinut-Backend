@@ -22,6 +22,8 @@ const embedSchema = new mongoose.Schema(
       min: 1,
       default: 250,
     },
+    width: { type: Number, min: 50, max: 2000, default: null },
+    autoSize: { type: Boolean, default: false },
     positionAfterNews: {
       type: Number,
       required: true,
