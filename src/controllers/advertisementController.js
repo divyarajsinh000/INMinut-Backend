@@ -2,6 +2,10 @@ const Advertisement = require("../models/Advertisement");
 const { deleteFromS3 } = require("../utils/s3");
 const { sanitizeString, sanitizeUrl, isValidObjectId } = require("../utils/sanitizer");
 
+const isValidHeight = (value) =>
+  (typeof value === "number" || (typeof value === "string" && value.trim() !== "")) &&
+  Number.isFinite(Number(value)) && Number(value) >= 80;
+
 const parseBoolean = (value) => {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.toLowerCase() === "true";
@@ -32,7 +36,10 @@ const getImageUrlFromRequest = (req) => {
 
 const createAdvertisement = async (req, res) => {
   try {
-    const { name, label, redirectUrl, positionAfterNews, isEnabled, cities, categories } = req.body;
+    const { name, label, redirectUrl, positionAfterNews, isEnabled, cities, categories, height } = req.body;
+    if (height !== undefined && !isValidHeight(height)) {
+      return res.status(400).json({ success: false, message: "Advertisement height must be a number of at least 80" });
+    }
     const bannerImage = getImageUrlFromRequest(req);
 
     const safeRedirectUrl = sanitizeUrl(redirectUrl);
@@ -51,6 +58,7 @@ const createAdvertisement = async (req, res) => {
       redirectUrl: safeRedirectUrl,
       cities: parseArrayField(cities),
       categories: parseArrayField(categories),
+      height: height === undefined ? 250 : Number(height),
       positionAfterNews: (positionAfterNews !== undefined && positionAfterNews !== "") ? Number(positionAfterNews) : 4,
       isEnabled: isEnabled === undefined ? true : parseBoolean(isEnabled),
     });
@@ -124,7 +132,10 @@ const updateAdvertisement = async (req, res) => {
       return res.status(404).json({ success: false, message: "Advertisement not found" });
     }
 
-    const { name, label, redirectUrl, positionAfterNews, isEnabled, cities, categories } = req.body;
+    const { name, label, redirectUrl, positionAfterNews, isEnabled, cities, categories, height } = req.body;
+    if (height !== undefined && !isValidHeight(height)) {
+      return res.status(400).json({ success: false, message: "Advertisement height must be a number of at least 80" });
+    }
     const newBannerImage = getImageUrlFromRequest(req);
 
     if (newBannerImage) {
@@ -140,6 +151,7 @@ const updateAdvertisement = async (req, res) => {
     if (positionAfterNews !== undefined) {
       advertisement.positionAfterNews = positionAfterNews !== "" ? Number(positionAfterNews) : 4;
     }
+    if (height !== undefined) advertisement.height = Number(height);
     if (isEnabled !== undefined) advertisement.isEnabled = parseBoolean(isEnabled);
 
     await advertisement.save();

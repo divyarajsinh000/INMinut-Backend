@@ -77,6 +77,19 @@ const validateEmbedFields = async (body, creating = false) => {
     if (body.autoSize !== undefined && ![true, false, "true", "false"].includes(body.autoSize)) throw new Error("Invalid autoSize value");
     values.autoSize = parseBoolean(body.autoSize);
   }
+  for (const [name, choices, fallback] of [
+    ["widthMode", ["fill", "contain", "original"], "contain"],
+    ["alignment", ["left", "center", "right"], "center"],
+  ]) {
+    if (body[name] !== undefined) {
+      if (!choices.includes(body[name])) throw new Error(`Invalid ${name}`);
+      values[name] = body[name];
+    } else if (creating) values[name] = fallback;
+  }
+  for (const name of ["paddingHorizontal", "paddingVertical"]) {
+    if (body[name] !== undefined) values[name] = dimension(body[name], name, 0, 50);
+    else if (creating) values[name] = 8;
+  }
   return values;
 };
 
@@ -111,6 +124,10 @@ const createEmbed = async (req, res) => {
       height: validated.height,
       width: validated.width,
       autoSize: validated.autoSize,
+      widthMode: validated.widthMode,
+      paddingHorizontal: validated.paddingHorizontal,
+      paddingVertical: validated.paddingVertical,
+      alignment: validated.alignment,
       positionAfterNews: numericPosition,
       isEnabled: isEnabled === undefined ? true : parseBoolean(isEnabled),
       categories: validated.categories,
@@ -197,6 +214,9 @@ const updateEmbed = async (req, res) => {
     if (height !== undefined) embed.height = validated.height;
     if (req.body.width !== undefined) embed.width = validated.width;
     if (req.body.autoSize !== undefined) embed.autoSize = validated.autoSize;
+    for (const field of ["widthMode", "paddingHorizontal", "paddingVertical", "alignment"]) {
+      if (validated[field] !== undefined) embed[field] = validated[field];
+    }
     if (positionAfterNews !== undefined) embed.positionAfterNews = Number(positionAfterNews);
     if (isEnabled !== undefined) embed.isEnabled = parseBoolean(isEnabled);
     if (categories !== undefined) embed.categories = validated.categories;

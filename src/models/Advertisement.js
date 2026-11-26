@@ -27,6 +27,11 @@ const advertisementSchema = new mongoose.Schema(
       default: [],
       index: true,
     },
+    height: {
+      type: Number,
+      default: 250,
+      min: 80,
+    },
     positionAfterNews: {
       type: Number,
       default: 4,

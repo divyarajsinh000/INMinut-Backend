@@ -59,6 +59,10 @@ const updateSettings = async (req, res) => {
       settings = new Setting();
     }
     
+    // Explicit removal flags; omitted fields remain unchanged.
+    for (const field of ["appLogo", "appIcon", "defaultNewsImage", "defaultShareImage"]) {
+      if (req.body?.[`remove_${field}`] === "true") settings[field] = "";
+    }
     if (req.files) {
       if (req.files.appLogo?.[0]) settings.appLogo = getUploadedFileUrl(req.files.appLogo[0]);
       if (req.files.appIcon?.[0]) settings.appIcon = getUploadedFileUrl(req.files.appIcon[0]);
